@@ -121,7 +121,12 @@ jobs:
       - name: Página de respaldo
         run: cp web-app/index.html web-app/404.html
 
+      # enablement activa GitHub Pages la primera vez y lo configura para
+      # construir desde Actions. Sin esto hay que ir a Settings / Pages a mano,
+      # y el primer despliegue falla con "Get Pages site failed".
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
