@@ -118,8 +118,19 @@ En el repositorio: **Settings → Secrets and variables → Actions → New repo
 
 **Settings → Pages → Source: GitHub Actions**
 
-Después, cualquier `push` a `main` publica el sitio. También se puede lanzar a
-mano desde la pestaña **Actions**.
+Este paso hay que hacerlo **a mano y una sola vez**, y va **antes** del primer
+despliegue. El workflow no puede activarlo por su cuenta: el token que usa no
+tiene permiso para crear el sitio, así que el primer intento falla con
+*«Get Pages site failed»* hasta que lo activés acá.
+
+Después de activarlo, volvé a lanzar el workflow desde la pestaña **Actions**
+(*Publicar en GitHub Pages* → *Run workflow*). A partir de ahí, cualquier `push`
+a `main` publica solo.
+
+> El sitio se publica igual sin el secret `URL_FLOW`, en **modo demo**: podés
+> revisar el formulario, los desplegables y el diseño en el sitio real antes de
+> tener los flows armados. La app avisa con un cartel arriba y el botón de enviar
+> devuelve un error explícito, así que no hay riesgo de creer que se guardó algo.
 
 ### 6 · Probar de punta a punta
 

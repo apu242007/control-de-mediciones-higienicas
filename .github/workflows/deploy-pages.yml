@@ -121,12 +121,23 @@ jobs:
       - name: Página de respaldo
         run: cp web-app/index.html web-app/404.html
 
-      # enablement activa GitHub Pages la primera vez y lo configura para
-      # construir desde Actions. Sin esto hay que ir a Settings / Pages a mano,
-      # y el primer despliegue falla con "Get Pages site failed".
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      # GitHub Pages hay que activarlo UNA vez a mano, antes del primer
+      # despliegue: Settings -> Pages -> Source: GitHub Actions.
+      #
+      # `enablement: true` promete hacerlo solo, pero el GITHUB_TOKEN del
+      # workflow no tiene permiso para crear el sitio y falla con "Resource not
+      # accessible by integration". Se probó y no sirve.
+      - name: Configurar Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Ayuda si Pages no está activado
+        if: failure() && steps.pages.outcome == 'failure'
+        run: |
+          echo "::error title=Falta activar GitHub Pages::"\
+          "Andá a Settings / Pages del repositorio y poné Source: GitHub Actions. "\
+          "Después volvé a lanzar este workflow desde la pestaña Actions. "\
+          "Es un paso único: los despliegues siguientes ya no lo necesitan."
 
       - uses: actions/upload-pages-artifact@v3
         with:
