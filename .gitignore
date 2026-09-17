@@ -24,6 +24,10 @@ sharepoint/.token
 # Paquetes de flow exportados con la URL del trigger embebida
 power-automate/paquetes/*-privado.zip
 
+# Salidas de diagnóstico
+ci-log.txt
+*.tap
+
 # Herramientas
 .claude-flow/
 node_modules/

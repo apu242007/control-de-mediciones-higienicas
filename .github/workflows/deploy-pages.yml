@@ -76,14 +76,26 @@ jobs:
           url = os.environ.get("URL_FLOW", "").strip()
           key = os.environ.get("APP_KEY", "").strip()
 
+          # Sin URL_FLOW el sitio se publica igual, en modo demo. Es un estado
+          # legitimo mientras los flows todavia no existen: deja revisar el
+          # formulario y los catalogos en el sitio real. La app lo avisa con un
+          # cartel arriba y el boton de enviar devuelve un error explicito, asi
+          # que nadie puede creer que cargo algo que no se guardo.
           if not url:
-              print("::error::Falta el secret URL_FLOW. Sin el, el sitio se publica en modo demo y no guarda nada.")
+              print("::warning title=Sitio en modo demo::"
+                    "Falta el secret URL_FLOW, asi que el sitio se publica en modo demo y "
+                    "no guarda nada en SharePoint. Cargalo en Settings / Secrets and "
+                    "variables / Actions cuando el flow MED-API este armado.")
+          elif not url.startswith("https://"):
+              # Esto si es un error de configuracion, no un estado pendiente.
+              print("::error title=URL_FLOW invalida::"
+                    "No arranca con https://. Revisa que se haya copiado completa.")
               sys.exit(1)
-          if not url.startswith("https://"):
-              print("::error::URL_FLOW no arranca con https://. Revisa que se haya copiado completa.")
-              sys.exit(1)
-          if not key:
-              print("::warning::Falta el secret APP_KEY. El flow va a rechazar todas las llamadas si tiene la verificacion de clave activada.")
+
+          if url and not key:
+              print("::warning title=Falta APP_KEY::"
+                    "Si el flow tiene la verificacion de clave activada, va a rechazar "
+                    "todas las llamadas con 401.")
 
           for marcador, valor in (("__URL_FLOW__", url), ("__APP_KEY__", key)):
               if marcador not in texto:
