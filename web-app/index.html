@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cargar medición — Mediciones Higiénicas</title>
+<meta name="description" content="Carga de estudios de iluminación y ruido a la biblioteca QHSE.">
+
+<link rel="stylesheet" href="./assets/estilos.css">
+<link rel="icon" href="./assets/icono.svg" type="image/svg+xml">
+<link rel="manifest" href="./assets/manifest.json">
+<link rel="apple-touch-icon" href="./assets/icono-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mediciones">
+</head>
+<body>
+
+<header class="cabecera">
+  <h1>Mediciones Higiénicas — LUZ y RUIDO</h1>
+  <p>Carga de estudios a la biblioteca Documentos QHSE</p>
+</header>
+
+<nav class="navegacion">
+  <a href="./index.html" aria-current="page">Cargar medición</a>
+  <a href="./buscar.html">Buscar documentos</a>
+</nav>
+
+<main>
+  <div id="aviso-demo" class="aviso warn" hidden>
+    <div class="titulo">Modo demo</div>
+    La URL del flow no está configurada, así que <strong>nada se envía a
+    SharePoint</strong>. El formulario valida y arma el nombre del archivo, nada más.
+  </div>
+
+  <div id="aviso" class="aviso" hidden></div>
+
+  <!-- ===== Pantalla de éxito ===== -->
+  <section id="pantalla-exito" class="tarjeta exito" hidden>
+    <div class="tilde">&check;</div>
+    <h2>Documento cargado</h2>
+    <p>Ya está en la biblioteca QHSE, en su carpeta, con la fecha de vencimiento
+       registrada.</p>
+    <div class="resumen" id="resumen-exito"></div>
+    <div class="acciones">
+      <button type="button" id="btn-otra">Cargar otra medición</button>
+      <button type="button" class="secundario" id="btn-ir-buscar">Ir al buscador</button>
+    </div>
+  </section>
+
+  <!-- ===== Formulario ===== -->
+  <form id="formulario" novalidate>
+
+    <section class="tarjeta">
+      <h2>1 · Datos de la medición</h2>
+      <div class="grilla">
+        <label for="tipo">
+          Tipo de medición *
+          <select id="tipo" name="tipo">
+            <option value="">Seleccionar…</option>
+          </select>
+        </label>
+
+        <label for="equipo">
+          Equipo *
+          <select id="equipo" name="equipo">
+            <option value="">Seleccionar…</option>
+          </select>
+        </label>
+
+        <label for="cliente">
+          Cliente / Operadora *
+          <input id="cliente" name="cliente" list="lista-clientes"
+                 placeholder="Elegir o escribir" autocomplete="off">
+          <datalist id="lista-clientes"></datalist>
+          <span class="pista">Podés elegir de la lista o escribir uno nuevo.</span>
+        </label>
+
+        <label for="fecha">
+          Fecha de la medición *
+          <input id="fecha" name="fecha" type="date">
+        </label>
+      </div>
+    </section>
+
+    <section class="tarjeta">
+      <h2>2 · Vigencia y vencimiento</h2>
+      <div class="grilla">
+        <label for="vigencia">
+          Vigencia *
+          <select id="vigencia" name="vigencia"></select>
+          <span class="pista">Los plazos cortos cubren los clientes que piden
+            medición pozo a pozo.</span>
+        </label>
+
+        <label for="vencimiento">
+          Vence el
+          <input id="vencimiento" name="vencimiento" type="date" readonly>
+          <span class="pista" id="pista-vencimiento">Se calcula solo desde la
+            fecha de medición.</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="tarjeta">
+      <h2>3 · Archivo PDF</h2>
+      <label class="zona-archivo" id="zona-archivo" for="archivo">
+        <input id="archivo" name="archivo" type="file" accept="application/pdf,.pdf">
+        <span id="zona-contenido">
+          <span class="icono">📄</span>
+          <span class="titulo">Tocá para elegir el PDF</span>
+          <span class="detalle">Solo archivos PDF</span>
+        </span>
+      </label>
+      <div id="aviso-tamano" class="aviso warn sep-arriba" hidden></div>
+
+      <label class="ancho sep-arriba-md">
+        Nombre con el que se va a guardar
+        <input id="nombre-final" type="text" readonly>
+        <span class="pista">Se arma solo. Si ya existe un archivo con este
+          nombre, SharePoint le agrega un sufijo en lugar de sobrescribirlo.</span>
+      </label>
+    </section>
+
+    <section class="tarjeta">
+      <h2>4 · Confirmar</h2>
+      <div class="barra-pin">
+        <label for="pin">
+          PIN de carga *
+          <input id="pin" name="pin" type="password" inputmode="numeric"
+                 autocomplete="off" maxlength="8" placeholder="••••">
+        </label>
+        <label class="casilla-inline">
+          <input type="checkbox" id="ver-pin">
+          <span>Ver</span>
+        </label>
+      </div>
+
+      <div id="pendientes" class="pendientes" hidden>
+        <div class="titulo">Falta completar</div>
+        <ul id="lista-pendientes"></ul>
+      </div>
+
+      <div class="acciones">
+        <button type="submit" id="btn-enviar">Cargar a SharePoint</button>
+        <button type="button" class="secundario" id="btn-limpiar">Limpiar formulario</button>
+      </div>
+    </section>
+
+  </form>
+
+  <p class="pie">
+    Los documentos se guardan en SharePoint. Esta aplicación no almacena ningún
+    archivo.
+  </p>
+</main>
+
+<script type="module">
+  import { FLOW_URL, APP_KEY } from "./assets/config.js";
+  import { initFlow } from "./assets/api.js";
+  import { arrancarCarga } from "./assets/app-carga.js";
+  import { registrarSW } from "./assets/sw-registro.js";
+
+  // El cuerpo del script corre DESPUES de los imports, asi que aca la config
+  // ya existe. Nunca al reves: ver el comentario en api.js.
+  initFlow(FLOW_URL, APP_KEY);
+  arrancarCarga();
+  registrarSW();
+</script>
+</body>
+</html>

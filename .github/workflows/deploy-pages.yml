@@ -1,0 +1,103 @@
+name: Publicar en GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  probar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No hay dependencias que instalar: las pruebas usan el ejecutor propio
+      # de Node. Si falla alguna, el despliegue no corre.
+      - name: Pruebas de la lógica
+        run: node --test pruebas/
+
+  construir:
+    needs: probar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # El sitio es HTML estatico: no hay build. Lo unico que hace falta es
+      # poner los valores reales donde config.js tiene los marcadores.
+      #
+      # Se usa Python con reemplazo literal en vez de sed: la URL del flow trae
+      # '/', '?', '&' y '=', que sed interpretaria como parte de su sintaxis.
+      - name: Inyectar configuración
+        env:
+          URL_FLOW: ${{ secrets.URL_FLOW }}
+          APP_KEY: ${{ secrets.APP_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os, sys, pathlib
+
+          ruta = pathlib.Path("web-app/assets/config.js")
+          texto = ruta.read_text(encoding="utf-8")
+
+          url = os.environ.get("URL_FLOW", "").strip()
+          key = os.environ.get("APP_KEY", "").strip()
+
+          if not url:
+              print("::error::Falta el secret URL_FLOW. Sin el, el sitio se publica en modo demo y no guarda nada.")
+              sys.exit(1)
+          if not url.startswith("https://"):
+              print("::error::URL_FLOW no arranca con https://. Revisa que se haya copiado completa.")
+              sys.exit(1)
+          if not key:
+              print("::warning::Falta el secret APP_KEY. El flow va a rechazar todas las llamadas si tiene la verificacion de clave activada.")
+
+          for marcador, valor in (("__URL_FLOW__", url), ("__APP_KEY__", key)):
+              if marcador not in texto:
+                  print(f"::error::No se encontro el marcador {marcador} en config.js.")
+                  sys.exit(1)
+              texto = texto.replace(marcador, valor)
+
+          ruta.write_text(texto, encoding="utf-8")
+          print("Configuracion inyectada.")
+          PY
+
+      # Verificacion: que no haya quedado ningun marcador sin reemplazar, y que
+      # el secret no se filtre al log. Solo se informa si aparece un marcador.
+      - name: Verificar que no queden marcadores
+        run: |
+          if grep -q '__URL_FLOW__\|__APP_KEY__' web-app/assets/config.js; then
+            echo "::error::Quedaron marcadores sin reemplazar en config.js."
+            exit 1
+          fi
+          echo "config.js listo."
+
+      # GitHub Pages sirve 404.html ante cualquier ruta desconocida.
+      - name: Página de respaldo
+        run: cp web-app/index.html web-app/404.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web-app
+
+  publicar:
+    needs: construir
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - id: despliegue
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,461 @@
+/* ==========================================================================
+   Mediciones Higiénicas — hoja de estilos única
+   ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  --azul: #0b3d6b;
+  --azul-claro: #1668a8;
+  --azul-suave: #e8f1f9;
+  --texto: #14202b;
+  --texto-suave: #5b6b7a;
+  --fondo: #f4f6f8;
+  --tarjeta: #ffffff;
+  --borde: #d3dce4;
+  --borde-fuerte: #9fb0c0;
+
+  --ok: #0f7a3d;
+  --ok-fondo: #e6f5ec;
+  --alerta: #b45309;
+  --alerta-fondo: #fef3c7;
+  --error: #b91c1c;
+  --error-fondo: #fdecea;
+
+  --radio: 10px;
+  --sombra: 0 1px 2px rgba(20, 32, 43, 0.06), 0 4px 14px rgba(20, 32, 43, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --azul: #4aa3e0;
+    --azul-claro: #6bb8ee;
+    --azul-suave: #17303f;
+    --texto: #e6edf3;
+    --texto-suave: #9bb0c2;
+    --fondo: #0f1620;
+    --tarjeta: #18222e;
+    --borde: #2c3b4a;
+    --borde-fuerte: #46596b;
+
+    --ok: #56d98a;
+    --ok-fondo: #143024;
+    --alerta: #f0b34a;
+    --alerta-fondo: #3a2c10;
+    --error: #f2776c;
+    --error-fondo: #3a1a17;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0 0 env(safe-area-inset-bottom);
+  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--texto);
+  background: var(--fondo);
+}
+
+/* --- Encabezado --------------------------------------------------------- */
+
+.cabecera {
+  background: var(--azul);
+  color: #fff;
+  padding: calc(14px + env(safe-area-inset-top)) 18px 14px;
+}
+.cabecera h1 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.cabecera p {
+  margin: 3px 0 0;
+  font-size: 0.82rem;
+  opacity: 0.85;
+}
+
+.navegacion {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px;
+  background: var(--azul);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  overflow-x: auto;
+}
+.navegacion a {
+  flex: 0 0 auto;
+  padding: 11px 16px;
+  color: rgba(255, 255, 255, 0.78);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 560;
+  border-bottom: 3px solid transparent;
+  white-space: nowrap;
+}
+.navegacion a:hover { color: #fff; }
+.navegacion a[aria-current="page"] {
+  color: #fff;
+  border-bottom-color: #fff;
+}
+
+/* --- Contenedor -------------------------------------------------------- */
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 18px 16px 90px;
+}
+
+.tarjeta {
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 18px;
+  margin-bottom: 16px;
+}
+.tarjeta > h2 {
+  margin: 0 0 14px;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--azul);
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--borde);
+}
+
+/* --- Campos ------------------------------------------------------------ */
+
+.grilla {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.grilla .ancho { grid-column: 1 / -1; }
+
+@media (max-width: 560px) {
+  .grilla { grid-template-columns: 1fr; }
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--texto-suave);
+}
+
+/* No tocar appearance en checkbox ni radio: el tilde nativo depende de ella
+   y si se la saca el control queda invisible al marcarse. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  appearance: none;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--texto);
+  background: var(--tarjeta);
+  border: 1.5px solid var(--borde-fuerte);
+  border-radius: 8px;
+}
+
+select {
+  background-image: linear-gradient(45deg, transparent 50%, var(--texto-suave) 50%),
+    linear-gradient(135deg, var(--texto-suave) 50%, transparent 50%);
+  background-position: calc(100% - 19px) 50%, calc(100% - 13px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 3px solid var(--azul-claro);
+  outline-offset: 1px;
+  border-color: var(--azul-claro);
+}
+
+input[type="checkbox"], input[type="radio"] {
+  accent-color: var(--azul-claro);
+  width: 20px;
+  height: 20px;
+}
+
+input[readonly] {
+  background: var(--azul-suave);
+  font-weight: 600;
+  cursor: default;
+}
+
+.pista {
+  font-size: 0.76rem;
+  font-weight: 400;
+  color: var(--texto-suave);
+}
+.label-error { color: var(--error); }
+.campo-error {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--error);
+}
+
+/* --- Zona de archivo --------------------------------------------------- */
+
+.zona-archivo {
+  border: 2px dashed var(--borde-fuerte);
+  border-radius: var(--radio);
+  padding: 22px 16px;
+  text-align: center;
+  background: var(--azul-suave);
+  cursor: pointer;
+}
+.zona-archivo:hover { border-color: var(--azul-claro); }
+.zona-archivo.tiene-archivo {
+  border-style: solid;
+  border-color: var(--ok);
+  background: var(--ok-fondo);
+  text-align: left;
+}
+.zona-archivo input[type="file"] { display: none; }
+.zona-archivo .icono { font-size: 1.9rem; line-height: 1; }
+.zona-archivo .titulo { font-weight: 650; margin-top: 6px; }
+.zona-archivo .detalle {
+  font-size: 0.8rem;
+  color: var(--texto-suave);
+  margin-top: 3px;
+  word-break: break-all;
+}
+
+/* --- Botones ----------------------------------------------------------- */
+
+button {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 650;
+  min-height: 48px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  background: var(--azul);
+  color: #fff;
+}
+button:hover:not(:disabled) { background: var(--azul-claro); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.secundario {
+  background: transparent;
+  color: var(--azul);
+  border: 1.5px solid var(--borde-fuerte);
+}
+button.secundario:hover:not(:disabled) {
+  background: var(--azul-suave);
+  color: var(--azul);
+}
+button.chico {
+  min-height: 38px;
+  padding: 7px 14px;
+  font-size: 0.85rem;
+}
+button.ancho { width: 100%; }
+
+.acciones {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.acciones button { flex: 1 1 200px; }
+
+/* --- Avisos ------------------------------------------------------------ */
+
+.aviso {
+  border-radius: 9px;
+  padding: 13px 15px;
+  margin-bottom: 15px;
+  font-size: 0.89rem;
+  border-left: 5px solid;
+}
+.aviso .titulo { font-weight: 700; margin-bottom: 4px; }
+.aviso.ok    { background: var(--ok-fondo);    border-color: var(--ok);    color: var(--ok); }
+.aviso.warn  { background: var(--alerta-fondo); border-color: var(--alerta); color: var(--alerta); }
+.aviso.error { background: var(--error-fondo);  border-color: var(--error);  color: var(--error); }
+.aviso.info  { background: var(--azul-suave);   border-color: var(--azul-claro); color: var(--azul); }
+.aviso ul { margin: 6px 0 0; padding-left: 20px; }
+
+/* --- Pendientes -------------------------------------------------------- */
+
+.pendientes {
+  background: var(--alerta-fondo);
+  border: 1px solid var(--alerta);
+  border-radius: 9px;
+  padding: 13px 15px;
+  margin-top: 16px;
+  font-size: 0.88rem;
+  color: var(--alerta);
+}
+.pendientes .titulo { font-weight: 700; margin-bottom: 5px; }
+.pendientes ul { margin: 0; padding-left: 20px; }
+
+/* --- Pantalla de exito ------------------------------------------------- */
+
+.exito { text-align: center; padding: 30px 20px; }
+.exito .tilde {
+  width: 66px; height: 66px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: var(--ok);
+  color: #fff;
+  font-size: 2.1rem;
+  line-height: 66px;
+  font-weight: 700;
+}
+.exito h2 { margin: 0 0 8px; font-size: 1.22rem; color: var(--ok); }
+.exito .resumen {
+  text-align: left;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 9px;
+  padding: 14px;
+  margin: 18px 0;
+  font-size: 0.89rem;
+}
+.exito .resumen div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--borde);
+}
+.exito .resumen div:last-child { border-bottom: none; }
+.exito .resumen span:first-child { color: var(--texto-suave); font-weight: 600; }
+.exito .resumen span:last-child { text-align: right; font-weight: 600; }
+
+/* --- Tabla de resultados ---------------------------------------------- */
+
+.envoltura-tabla {
+  overflow-x: auto;
+  border: 1px solid var(--borde);
+  border-radius: 9px;
+}
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+thead th {
+  background: var(--azul-suave);
+  color: var(--azul);
+  text-align: left;
+  padding: 10px 11px;
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+tbody td {
+  padding: 10px 11px;
+  border-top: 1px solid var(--borde);
+  vertical-align: middle;
+}
+tbody tr:hover { background: var(--azul-suave); }
+
+.chip {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.73rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.chip.vigente  { background: var(--ok-fondo);     color: var(--ok); }
+.chip.porvencer{ background: var(--alerta-fondo); color: var(--alerta); }
+.chip.vencido  { background: var(--error-fondo);  color: var(--error); }
+.chip.sinfecha { background: var(--fondo);        color: var(--texto-suave); }
+
+.vacio {
+  text-align: center;
+  padding: 36px 20px;
+  color: var(--texto-suave);
+}
+.vacio .icono { font-size: 2.1rem; }
+
+/* --- Barra de PIN ----------------------------------------------------- */
+
+.barra-pin {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.barra-pin label { flex: 1 1 160px; }
+.barra-pin input {
+  letter-spacing: 0.4em;
+  font-size: 1.2rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+/* Casilla en línea junto a un campo: "Ver" al lado del PIN. */
+.casilla-inline {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  font-weight: 600;
+  color: var(--texto);
+}
+
+/* --- Utilidades de separación ------------------------------------------ */
+
+.sep-arriba { margin-top: 14px; }
+.sep-arriba-md { margin-top: 16px; }
+
+/* Nombre de archivo en la tabla: puede ser largo y tiene que poder cortarse. */
+.celda-nombre {
+  max-width: 260px;
+  word-break: break-word;
+}
+.celda-acciones { white-space: nowrap; }
+.celda-acciones a {
+  margin-left: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--azul);
+}
+
+/* --- Varios ----------------------------------------------------------- */
+
+.girando {
+  display: inline-block;
+  width: 15px; height: 15px;
+  margin-right: 7px;
+  border: 2.5px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: girar 0.75s linear infinite;
+  vertical-align: -2px;
+}
+@keyframes girar { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .girando { animation-duration: 2s; }
+}
+
+.pie {
+  text-align: center;
+  font-size: 0.76rem;
+  color: var(--texto-suave);
+  padding: 22px 16px 34px;
+}
+
+[hidden] { display: none !important; }

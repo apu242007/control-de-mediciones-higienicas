@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Buscar documentos — Mediciones Higiénicas</title>
+<meta name="description" content="Búsqueda y descarga de estudios de iluminación y ruido de la biblioteca QHSE.">
+
+<link rel="stylesheet" href="./assets/estilos.css">
+<link rel="icon" href="./assets/icono.svg" type="image/svg+xml">
+<link rel="manifest" href="./assets/manifest.json">
+<link rel="apple-touch-icon" href="./assets/icono-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mediciones">
+</head>
+<body>
+
+<header class="cabecera">
+  <h1>Mediciones Higiénicas — LUZ y RUIDO</h1>
+  <p>Búsqueda y descarga de estudios cargados</p>
+</header>
+
+<nav class="navegacion">
+  <a href="./index.html">Cargar medición</a>
+  <a href="./buscar.html" aria-current="page">Buscar documentos</a>
+</nav>
+
+<main>
+  <div id="aviso-demo" class="aviso warn" hidden>
+    <div class="titulo">Modo demo</div>
+    La URL del flow no está configurada, así que no se puede consultar SharePoint.
+  </div>
+
+  <div id="aviso" class="aviso" hidden></div>
+
+  <section class="tarjeta">
+    <h2>Filtros</h2>
+    <form id="formulario-busqueda" novalidate>
+      <div class="grilla">
+        <label for="f-tipo">
+          Tipo de medición
+          <select id="f-tipo"><option value="">Todos</option></select>
+        </label>
+
+        <label for="f-equipo">
+          Equipo
+          <select id="f-equipo"><option value="">Todos</option></select>
+        </label>
+
+        <label for="f-cliente">
+          Cliente / Operadora
+          <input id="f-cliente" list="lista-clientes" placeholder="Todos"
+                 autocomplete="off">
+          <datalist id="lista-clientes"></datalist>
+        </label>
+
+        <label for="f-estado">
+          Estado de vigencia
+          <select id="f-estado">
+            <option value="">Todos</option>
+            <option value="vencido">Vencidos</option>
+            <option value="porvencer">Por vencer (próximos 30 días)</option>
+            <option value="vigente">Vigentes</option>
+          </select>
+        </label>
+
+        <label for="f-desde">
+          Medición desde
+          <input id="f-desde" type="date">
+        </label>
+
+        <label for="f-hasta">
+          Medición hasta
+          <input id="f-hasta" type="date">
+        </label>
+
+        <label class="ancho" for="f-texto">
+          Texto en el nombre del archivo
+          <input id="f-texto" placeholder="Ej.: LAJE, RDA 2108, verificación"
+                 autocomplete="off">
+        </label>
+      </div>
+
+      <div class="barra-pin sep-arriba-md">
+        <label for="pin">
+          PIN de consulta *
+          <input id="pin" type="password" inputmode="numeric" autocomplete="off"
+                 maxlength="8" placeholder="••••">
+        </label>
+        <label class="casilla-inline">
+          <input type="checkbox" id="ver-pin">
+          <span>Ver</span>
+        </label>
+      </div>
+
+      <div class="acciones">
+        <button type="submit" id="btn-buscar">Buscar</button>
+        <button type="button" class="secundario" id="btn-limpiar">Limpiar filtros</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="tarjeta" id="tarjeta-resultados" hidden>
+    <h2 id="titulo-resultados">Resultados</h2>
+    <div class="envoltura-tabla">
+      <table>
+        <thead>
+          <tr>
+            <th>Estado</th>
+            <th>Equipo</th>
+            <th>Tipo</th>
+            <th>Cliente</th>
+            <th>Medición</th>
+            <th>Vence</th>
+            <th>Archivo</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="cuerpo-resultados"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="tarjeta vacio" id="sin-resultados" hidden>
+    <div class="icono">🔍</div>
+    <p>No hay documentos que coincidan con esos filtros.</p>
+  </section>
+
+  <p class="pie">
+    El botón <strong>Descargar</strong> funciona sin iniciar sesión.
+    <strong>Abrir</strong> lleva a SharePoint y pide cuenta de Microsoft&nbsp;365.
+  </p>
+</main>
+
+<script type="module">
+  import { FLOW_URL, APP_KEY } from "./assets/config.js";
+  import { initFlow } from "./assets/api.js";
+  import { arrancarBuscador } from "./assets/app-buscar.js";
+  import { registrarSW } from "./assets/sw-registro.js";
+
+  initFlow(FLOW_URL, APP_KEY);
+  arrancarBuscador();
+  registrarSW();
+</script>
+</body>
+</html>

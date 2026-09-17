@@ -1,0 +1,12 @@
+# Navegadores que realmente se usan para esta app: PC de oficina con Edge o
+# Chrome, y celulares Android/iPhone del personal.
+#
+# Sin este archivo, las herramientas de compatibilidad (Edge Tools, webhint)
+# evaluan contra su lista por defecto — que incluye Firefox y navegadores
+# viejos — y marcan como errores cosas que en la practica funcionan bien.
+
+last 2 chrome versions
+last 2 edge versions
+last 2 and_chr versions
+last 2 ios_saf versions
+last 2 safari versions

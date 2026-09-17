@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# DOCUMENTOS: viven en SharePoint, NUNCA en el repositorio.
+# Estas carpetas son la copia local sincronizada por OneDrive.
+# ---------------------------------------------------------------------------
+Mediciones de luz/
+Medición de Ruido/
+Medicion de Ruido/
+*.pdf
+*.xls
+*.xlsx
+
+# Credenciales y reparto de PIN
+pines/
+*-pines.csv
+*.secrets
+.env
+.env.*
+!.env.example
+
+# Tokens cacheados del script de SharePoint
+*.refreshtoken
+sharepoint/.token
+
+# Paquetes de flow exportados con la URL del trigger embebida
+power-automate/paquetes/*-privado.zip
+
+# Herramientas
+.claude-flow/
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
+desktop.ini
