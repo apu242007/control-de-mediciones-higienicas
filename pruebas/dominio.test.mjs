@@ -1,7 +1,11 @@
 // ===========================================================================
 // Pruebas de las funciones puras. Se corren sin navegador ni dependencias:
 //
-//   node --test pruebas/
+//   npm test        (o: node --test)
+//
+// Sin argumento de ruta: node --test descubre por patron y anda igual en
+// Node 18, 20 y 22. Pasarle 'pruebas/' rompe en Node 22, que lo trata como un
+// modulo a ejecutar en vez de un directorio a escanear.
 //
 // Cubren lo deterministico y propenso a error de borde: aritmetica de fechas,
 // saneado de nombres de archivo y la validacion del formulario. El flow y

@@ -244,8 +244,33 @@ subirlo directo por SharePoint.
     └── deploy-pages.yml
 ```
 
-No hay `npm install`, ni compilación, ni dependencias. Son archivos estáticos que
-el navegador lee tal como están. Para probar en tu máquina:
+No hay `npm install`, ni compilación, ni dependencias.
+
+### Pruebas
+
+```powershell
+npm test
+```
+
+82 pruebas, sin dependencias — usan el ejecutor propio de Node. Cubren la
+aritmética de fechas (el desborde de día al sumar meses, el corrimiento por zona
+horaria), el armado y saneado del nombre de archivo, la validación del
+formulario, el contrato del cliente del flow, y la integridad entre el HTML y el
+JS: que cada `id` que el JavaScript busca exista de verdad, que ningún módulo lea
+una global de configuración, y que todo lo que el service worker precachea
+exista.
+
+Corren también en CI, y si fallan el despliegue no se ejecuta.
+
+**Lo que las pruebas NO cubren:** que la pantalla se vea y se comporte bien.
+Eso hay que mirarlo en un navegador, y conviene hacerlo en un celular real —
+varias cosas (el ícono de iOS, la cámara, el comportamiento al bloquear la
+pantalla) no se reproducen en el emulador del navegador. El flow y SharePoint
+tampoco se pueden probar desde acá: para eso está la lista del paso 6.
+
+### Probar el sitio en tu máquina
+
+Son archivos estáticos que el navegador lee tal como están:
 
 ```powershell
 cd web-app

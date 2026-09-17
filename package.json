@@ -6,7 +6,8 @@
   "//": "Este archivo NO agrega un paso de compilación. El sitio son archivos estáticos que el navegador lee tal cual, y no hay dependencias que instalar. Está solo para dos cosas: que 'type: module' haga que Node lea los .js como módulos ES (el navegador ya lo hace por el <script type=\"module\">), y para tener el comando de pruebas a mano.",
   "type": "module",
   "scripts": {
-    "test": "node --test pruebas/"
+    "//test": "Sin argumento de ruta: node --test descubre por patrón (**/*.test.mjs) y anda igual en Node 18, 20 y 22. Pasarle 'pruebas/' rompe en Node 22, que lo trata como un módulo a ejecutar en lugar de un directorio a escanear.",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"

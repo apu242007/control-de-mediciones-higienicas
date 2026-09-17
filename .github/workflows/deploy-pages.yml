@@ -33,10 +33,15 @@ jobs:
       # El detalle del fallo se emite como anotacion (::error::) y no solo al
       # log: las anotaciones se pueden leer por la API sin credenciales, el log
       # no. Sin esto, diagnosticar un fallo de CI desde afuera es a ciegas.
+      # `node --test` SIN argumento de ruta, a propósito: descubre los archivos
+      # por patrón (**/*.test.mjs) y funciona igual en Node 18, 20 y 22.
+      # Pasarle `pruebas/` rompe en Node 22, que trata el argumento como un
+      # módulo a ejecutar en vez de como un directorio a escanear:
+      #   Error: Cannot find module '/home/runner/work/.../pruebas'
       - name: Pruebas de la lógica
         run: |
           set +e
-          node --test pruebas/ > /tmp/salida.tap 2>&1
+          node --test > /tmp/salida.tap 2>&1
           codigo=$?
           cat /tmp/salida.tap
           if [ $codigo -ne 0 ]; then
