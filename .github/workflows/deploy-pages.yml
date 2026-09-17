@@ -17,16 +17,34 @@ concurrency:
 jobs:
   probar:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
 
       # No hay dependencias que instalar: las pruebas usan el ejecutor propio
       # de Node. Si falla alguna, el despliegue no corre.
+      #
+      # El detalle del fallo se emite como anotacion (::error::) y no solo al
+      # log: las anotaciones se pueden leer por la API sin credenciales, el log
+      # no. Sin esto, diagnosticar un fallo de CI desde afuera es a ciegas.
       - name: Pruebas de la lógica
-        run: node --test pruebas/
+        run: |
+          set +e
+          node --test pruebas/ > /tmp/salida.tap 2>&1
+          codigo=$?
+          cat /tmp/salida.tap
+          if [ $codigo -ne 0 ]; then
+            detalle=$(grep -E '^not ok|AssertionError|SyntaxError|Cannot find|^# (pass|fail|tests)|expected:|actual:|Error \[' /tmp/salida.tap \
+                      | head -40 | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Pruebas fallaron en Node ${{ matrix.node }}::${detalle}"
+          fi
+          exit $codigo
 
   construir:
     needs: probar
