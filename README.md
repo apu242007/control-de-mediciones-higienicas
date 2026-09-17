@@ -97,6 +97,20 @@ Se puede correr todas las veces que quieras: lo que ya existe lo saltea.
 Seguí [`power-automate/Flow-1-MED-API.md`](power-automate/Flow-1-MED-API.md).
 Está paso a paso, con el nombre exacto de cada campo de la interfaz.
 
+También hay un despliegue reproducible para administradores. Usa la sesión
+activa de Azure CLI, reutiliza únicamente conexiones de SharePoint y Outlook
+en estado `Connected`, y crea o actualiza `MED-API` y `MED-Alertas` en el
+entorno predeterminado de TACKER:
+
+```powershell
+$resultado = .\power-automate\Deploy-Flows.ps1
+$resultado.AppKey | gh secret set APP_KEY --repo apu242007/control-de-mediciones-higienicas
+$resultado.UrlFlow | gh secret set URL_FLOW --repo apu242007/control-de-mediciones-higienicas
+```
+
+No imprimas ni guardes `$resultado`: contiene la URL firmada del disparador y
+la clave de aplicación. El script no escribe esos valores en archivos.
+
 Al guardar, copiá la **URL del disparador** (aparece en la tarjeta del primer
 paso). La necesitás en el paso 4.
 
@@ -247,8 +261,10 @@ subirlo directo por SharePoint.
 │       ├── sw.js                 ← subir CACHE en cada cambio
 │       └── sw-registro.js
 ├── sharepoint/
-│   └── Setup-Columnas-Mediciones.ps1
+│   ├── Setup-Columnas-Mediciones.ps1
+│   └── sharepoint.manifest.json  contrato declarativo del esquema
 ├── power-automate/
+│   ├── Deploy-Flows.ps1          despliegue reproducible de ambos flows
 │   ├── Flow-1-MED-API.md         diseño del flow de la app
 │   └── Flow-2-MED-Alertas.md     diseño del flow de avisos
 └── .github/workflows/

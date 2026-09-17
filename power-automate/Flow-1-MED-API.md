@@ -326,6 +326,7 @@ Asignaciones — **cada valor va en la pestaña `fx`**:
 
 | Clave | Valor |
 |---|---|
+| `id` | `item()?['Id']` |
 | `nombre` | `item()?['FileLeafRef']` |
 | `rutaRelativa` | `item()?['FileRef']` |
 | `equipo` | `if(startsWith(string(item()?['MedEquipo']), '{'), json(string(item()?['MedEquipo']))?['Value'], string(coalesce(item()?['MedEquipo'], '')))` |
@@ -377,13 +378,14 @@ Cabecera: `Content-Type: application/json`
 | Campo | Valor |
 |---|---|
 | Dirección del sitio | `<SITIO>` |
-| Ruta de acceso del archivo (`fx`) | `triggerBody()?['rutaRelativa']` |
+| Ruta de acceso del archivo (`fx`) | `replace(triggerBody()?['rutaRelativa'], '/sites/QHSE', '')` |
 | Inferir tipo de contenido | `No` |
 
-> La ruta que manda la app es la que salió de `FileRef` en el listado, así que
-> ya viene en el formato que el conector espera. La app **no** construye rutas
-> por su cuenta: eso evita que alguien pida un archivo de otra carpeta de la
-> biblioteca manipulando el pedido.
+> La ruta que manda la app es la que salió de `FileRef` en el listado. SharePoint
+> la devuelve relativa al servidor (`/sites/QHSE/...`), pero esta acción espera
+> una ruta relativa al sitio; por eso se elimina el prefijo `/sites/QHSE`. La app
+> **no** construye rutas por su cuenta: eso evita que alguien pida un archivo de
+> otra carpeta de la biblioteca manipulando el pedido.
 
 **7i · `Respuesta_descargar`** → `200`
 

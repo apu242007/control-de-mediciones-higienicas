@@ -2,10 +2,9 @@
 // CATALOGOS — editar aca y hacer push. No hay build step: el cambio sale en
 // el siguiente deploy de GitHub Pages.
 //
-// IMPORTANTE: si agregas un valor a EQUIPOS, CLIENTES o TIPOS_MEDICION, tenes
-// que agregarlo TAMBIEN a la columna Choice correspondiente en SharePoint
-// (sharepoint/Setup-Columnas-Mediciones.ps1). SharePoint descarta en silencio
-// cualquier valor que no este en la lista de opciones de la columna.
+// IMPORTANTE: si agregas un valor a EQUIPOS o TIPOS_MEDICION, tenes que
+// agregarlo TAMBIEN a la columna Choice correspondiente en SharePoint
+// (sharepoint/Setup-Columnas-Mediciones.ps1). CLIENTES es texto libre.
 // ===========================================================================
 
 // --- Equipos -------------------------------------------------------------
@@ -26,22 +25,13 @@ export const EQUIPOS = [
 ];
 
 // --- Clientes / Operadoras ----------------------------------------------
-// TODO JORGE: revisar y dejar SOLO las operadoras reales con las que opera
-// Tacker. Estos son valores iniciales para que la app arranque.
+// Revisado contra los estudios locales disponibles en septiembre de 2026.
+// Cliente sigue siendo texto libre: una operadora nueva se puede escribir a mano.
 export const CLIENTES = [
   "YPF",
-  "Pluspetrol",
   "Vista Energy",
   "Pampa Energía",
-  "Tecpetrol",
-  "Pan American Energy",
-  "Shell Argentina",
-  "Chevron",
-  "Aconcagua Energía",
-  "President Petroleum",
-  "Petrolera Aconcagua",
-  "Capex",
-  "Oilstone",
+  "TotalEnergies",
   "Tacker (interno)",
 ];
 

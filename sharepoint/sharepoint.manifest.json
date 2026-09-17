@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "site": {
+    "url": "https://tackersrl505.sharepoint.com/sites/QHSE"
+  },
+  "lists": [
+    {
+      "title": "MedicionesConfig",
+      "template": "GenericList",
+      "url": "Lists/MedicionesConfig",
+      "description": "Configuración de acceso de la aplicación de mediciones higiénicas.",
+      "fields": [
+        {
+          "internalName": "CfgValor",
+          "displayName": "Valor",
+          "type": "Text"
+        },
+        {
+          "internalName": "CfgFallidos",
+          "displayName": "Intentos fallidos",
+          "type": "Number"
+        },
+        {
+          "internalName": "CfgBloqueadoHasta",
+          "displayName": "Bloqueado hasta",
+          "type": "DateTime"
+        }
+      ],
+      "seedData": [
+        {
+          "key": "PIN_CARGA",
+          "Title": "PIN_CARGA"
+        },
+        {
+          "key": "PIN_CONSULTA",
+          "Title": "PIN_CONSULTA"
+        }
+      ]
+    }
+  ],
+  "libraries": [
+    {
+      "title": "Documentos QHSE",
+      "template": "DocumentLibrary",
+      "url": "Documentos QHSE",
+      "description": "Biblioteca QHSE que contiene las mediciones higiénicas.",
+      "fields": [
+        {
+          "internalName": "MedEquipo",
+          "displayName": "Equipo",
+          "type": "Choice",
+          "choices": [
+            "Tacker 01",
+            "Tacker 05",
+            "Tacker 06",
+            "Tacker 07",
+            "Tacker 08",
+            "Tacker 10",
+            "Tacker 11",
+            "Mase 01",
+            "Mase 02",
+            "Mase 03",
+            "Mase 04"
+          ]
+        },
+        {
+          "internalName": "MedCliente",
+          "displayName": "Cliente",
+          "type": "Text"
+        },
+        {
+          "internalName": "MedTipo",
+          "displayName": "Tipo de medición",
+          "type": "Choice",
+          "choices": [
+            "Iluminación",
+            "Ruido"
+          ]
+        },
+        {
+          "internalName": "MedFechaMedicion",
+          "displayName": "Fecha de medición",
+          "type": "DateTime",
+          "format": "DateOnly"
+        },
+        {
+          "internalName": "MedFechaVencimiento",
+          "displayName": "Fecha de vencimiento",
+          "type": "DateTime",
+          "format": "DateOnly"
+        },
+        {
+          "internalName": "MedVigenciaMeses",
+          "displayName": "Vigencia (meses)",
+          "type": "Number"
+        },
+        {
+          "internalName": "MedAlertaEnviada",
+          "displayName": "Último aviso enviado",
+          "type": "Text"
+        }
+      ]
+    }
+  ]
+}

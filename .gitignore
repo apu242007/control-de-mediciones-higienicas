@@ -27,6 +27,7 @@ power-automate/paquetes/*-privado.zip
 # Salidas de diagnóstico
 ci-log.txt
 *.tap
+.qa-artifacts/
 
 # Herramientas
 .claude-flow/

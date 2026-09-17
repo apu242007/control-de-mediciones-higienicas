@@ -4,7 +4,7 @@
 // SUBIR ESTE NUMERO en cada cambio del sitio. Si no, los navegadores que ya
 // visitaron la pagina siguen sirviendo la version vieja durante dias.
 // ===========================================================================
-const CACHE = "mediciones-v1";
+const CACHE = "mediciones-v2";
 
 const PRECACHE = [
   "../",
