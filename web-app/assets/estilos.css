@@ -49,6 +49,10 @@
 
 * { box-sizing: border-box; }
 
+/* Par estándar prefijo + propiedad final. El linter marca cada una por
+   separado como no soportada en algún navegador (son reglas contradictorias
+   entre sí): ninguna rompe nada donde no aplica, un navegador ignora la
+   declaración CSS que no reconoce. */
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
