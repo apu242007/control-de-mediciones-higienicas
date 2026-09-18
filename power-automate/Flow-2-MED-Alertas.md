@@ -1,7 +1,11 @@
 # Flow 2 — `MED-Alertas`
 
-Corre solo, una vez por día, y manda **un correo por cada medición que está por
-vencer o ya venció**.
+Corre solo, una vez por día, y manda **un correo por cada equipo y tipo de
+medición cuya medición más reciente está por vencer o ya venció**.
+
+> La definición exacta la genera [`Deploy-Flows.ps1`](Deploy-Flows.ps1): esa es la
+> fuente de verdad, y el HTML del correo vive en su variable `$mailBody`. Esta guía
+> explica la lógica y sirve para armarlo o revisarlo a mano.
 
 > ### Por qué no se usan las alertas nativas de SharePoint
 >
@@ -21,6 +25,7 @@ vencer o ya venció**.
 |---|---|
 | `<SITIO>` | `https://tackersrl505.sharepoint.com/sites/QHSE` |
 | `<BIBLIOTECA>` | `Documentos QHSE` |
+| `<ID_BIBLIOTECA>` | `3bcd9efb-57ca-4acf-b841-2e2557cc09d5` |
 | `<RAIZ_SERVIDOR>` | `/sites/QHSE/Documentos QHSE/16 - Mediciones Higiénicas LUZ y RUIDO` |
 | `<DESTINATARIO>` | `jcastro@tackertools.com` |
 
@@ -28,9 +33,14 @@ vencer o ya venció**.
 
 ## Comportamiento
 
-Hitos de aviso: **30, 15 y 7 días antes**, y **el día del vencimiento**. Después
-del vencimiento vuelve a avisar **una vez por semana** mientras siga sin
-renovarse, para que no se pierda de vista.
+**Solo avisa por el último documento de cada par Equipo + Tipo.** Cuando se carga
+una medición nueva de Tacker 01 / Iluminación, la anterior queda reemplazada y
+deja de generar avisos aunque su fecha ya haya pasado. «Último» = la fecha de
+medición más reciente; si dos empatan, el de Id mayor.
+
+Sobre ese documento, los hitos de aviso son **30, 15 y 7 días antes** del
+vencimiento. Después del vencimiento vuelve a avisar **una vez por semana**
+mientras siga sin renovarse.
 
 Cada documento recibe **un correo por hito**, no uno por día. El control es la
 columna `MedAlertaEnviada`: el flow anota ahí qué hito ya notificó y no lo repite.
@@ -44,13 +54,18 @@ diario durante casi un mes.
 ```
 Periodicidad (diaria, 08:00 ART)
 ├─ Init_varHoy                ← String
-├─ Consultar_vencimientos     ← Enviar solicitud HTTP a SharePoint
-├─ Filtrar_a_notificar        ← Filtrar matriz
+├─ Init_varVistos             ← String, vacío (las variables van en la raíz)
+├─ Consultar_vencimientos     ← Enviar solicitud HTTP a SharePoint (RenderListDataAsStream)
+├─ Normalizar_filas           ← Seleccionar
 └─ Recorrer_documentos        ← Aplicar a cada uno (concurrencia 1)
-    ├─ Init… (NO: las variables van arriba)
-    ├─ Calcular_hito          ← Redactar
-    ├─ Enviar_correo          ← Outlook · Enviar un correo electrónico (V2)
-    └─ Marcar_notificado      ← SharePoint · Actualizar propiedades del archivo
+    └─ Verificar_ultimo       ← Condición: ¿es el primero de su Equipo+Tipo?
+        └─ (sí)
+            ├─ Registrar_visto        ← Anexar a variable de cadena
+            └─ Evaluar_alerta         ← Condición: ¿vence en ≤ 30 días y hito nuevo?
+                └─ (sí)
+                    ├─ Calcular_hito          ← Redactar
+                    ├─ Enviar_correo          ← Outlook · Enviar un correo electrónico (V2)
+                    └─ Marcar_notificado      ← SharePoint · Actualizar propiedades del archivo
 ```
 
 ---
@@ -67,120 +82,128 @@ Periodicidad (diaria, 08:00 ART)
 
 ---
 
-## 2 · `Init_varHoy` — Inicializar variable
+## 2 · Variables
 
-| Campo | Valor |
-|---|---|
-| Nombre | `varHoy` |
-| Tipo | `String` |
-| Valor (`fx`) | `formatDateTime(convertTimeZone(utcNow(), 'UTC', 'Argentina Standard Time'), 'yyyy-MM-dd')` |
+`Init_varHoy` — `varHoy`, `String`, valor (`fx`):
+`formatDateTime(convertTimeZone(utcNow(), 'UTC', 'Argentina Standard Time'), 'yyyy-MM-dd')`.
+Se usa la fecha **argentina**, no la UTC, para que el cálculo no se corra un día si
+alguien mueve el horario del disparador a la noche.
 
-Se usa la fecha **argentina**, no la UTC. A las 08:00 de Argentina son las 11:00
-UTC del mismo día, así que acá coinciden; pero dejarlo explícito evita que el
-cálculo se corra un día si alguien mueve el horario del disparador a la noche.
+`Init_varVistos` — `varVistos`, `String`, valor vacío. Va acumulando las claves
+`|Equipo~Tipo|` de los grupos que ya se procesaron.
 
 ---
 
 ## 3 · `Consultar_vencimientos` — «Enviar una solicitud HTTP a SharePoint»
 
+> ### ⚠️ No usar `/items`: en esta biblioteca devuelve vacío
+>
+> La primera versión de este flow consultaba `_api/web/GetList(...)/items` con
+> filtro. Ese endpoint responde `200` con **cero filas**, aunque haya mil
+> documentos. El flow terminaba «Succeeded» todos los días y **no avisó nunca de
+> nada**: no hay error que perseguir, solo un silencio. Se consulta por
+> `RenderListDataAsStream`, igual que la interfaz de SharePoint.
+
 | Campo | Valor |
 |---|---|
 | Dirección del sitio | `<SITIO>` |
-| Método | `GET` |
-| Uri (`fx`) | ver abajo |
+| Método | `POST` |
+| Uri | `_api/web/lists(guid'<ID_BIBLIOTECA>')/RenderListDataAsStream` |
+| Cabeceras | `Accept` y `Content-Type`: `application/json;odata=nometadata` |
+| Cuerpo | JSON con `RenderOptions: 2` y el `ViewXml` de abajo |
 
-```
-concat(
-  '_api/web/GetList(''/sites/QHSE/Documentos QHSE'')/items',
-  '?$select=Id,FileLeafRef,FileRef,MedEquipo,MedCliente,MedTipo,MedFechaMedicion,MedFechaVencimiento,MedAlertaEnviada',
-  '&$filter=startswith(FileRef,''<RAIZ_SERVIDOR>'')',
-  ' and MedFechaVencimiento ne null',
-  ' and MedFechaVencimiento le datetime''', formatDateTime(addDays(utcNow(), 30), 'yyyy-MM-dd'), 'T23:59:59Z''',
-  '&$top=2000'
-)
-```
+CAML: `Scope='RecursiveAll'`, condición `prefijo de ruta` **y** `MedFechaVencimiento`
+no nula, y orden **del más nuevo al más viejo**: `MedFechaMedicion` descendente,
+`ID` descendente para desempatar.
 
-Cabeceras:
-
-| Clave | Valor |
-|---|---|
-| `Accept` | `application/json;odata=nometadata` |
-
-El filtro ya descarta todo lo que vence dentro de más de treinta días, así que el
-flow procesa pocas filas por día.
-
-> `MedFechaVencimiento` tiene que estar **indexada** en la biblioteca — el script
-> `sharepoint/Setup-Columnas-Mediciones.ps1` la crea así. Sin índice, cuando la
-> biblioteca pase los 5000 elementos este filtro empieza a fallar con un error de
-> umbral de vista, y el aviso se corta sin que nadie lo note.
+Trae **todos** los documentos con vencimiento, no solo los próximos: para saber si
+un documento es el último de su grupo hay que ver también los más nuevos, aunque
+vencen dentro de un año. `RowLimit` 2000.
 
 ---
 
-## 4 · `Filtrar_a_notificar` — Operaciones de datos · «Filtrar matriz»
+## 4 · `Normalizar_filas` — Operaciones de datos · «Seleccionar»
 
-- Desde (`fx`): `body('Consultar_vencimientos')?['value']`
+Desde (`fx`): `coalesce(body('Consultar_vencimientos')?['Row'], json('[]'))`
 
-Condición — en modo **avanzado**, pegando la expresión completa:
+Devuelve las filas con los mismos nombres de propiedad que usa el resto del flow
+(`Id, FileLeafRef, FileRef, MedEquipo, MedCliente, MedTipo, MedFechaMedicion,
+MedFechaVencimiento, MedVigenciaMeses, MedAlertaEnviada`).
+
+Las dos fechas se convierten a ISO: `RenderListDataAsStream` las devuelve en el
+formato regional del sitio (`31/01/2026`) y `ticks()` / `formatDateTime()` no las
+leen así. La conversión es
+`concat(substring(s, 6, 4), '-', substring(s, 3, 2), '-', substring(s, 0, 2), 'T12:00:00Z')`,
+con `s = string(coalesce(item()?['MedFechaVencimiento'], ''))`.
+
+---
+
+## 5 · `Recorrer_documentos` — «Aplicar a cada uno»
+
+- Seleccionar una salida (`fx`): `body('Normalizar_filas')`
+- **Configuración ⚙️ → Control de simultaneidad: Activado, Grado de paralelismo `1`**
+
+El paralelismo en 1 es **obligatorio**, no una cortesía: el bucle escribe la
+variable `varVistos`, y las variables solo se pueden modificar dentro de un bucle
+si este corre de a una iteración. Además ordena los correos y evita una ráfaga
+contra el límite del conector de Outlook.
+
+### 5·1 · `Verificar_ultimo` — Condición
 
 ```
-@not(equals(
-  coalesce(item()?['MedAlertaEnviada'], ''),
-  if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())),
-     concat('vencido-', formatDateTime(convertTimeZone(utcNow(),'UTC','Argentina Standard Time'), 'yyyy-ww')),
-     if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 7))),  'd7',
-     if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 15))), 'd15',
-                                                                                          'd30')))
-))
+@not(contains(variables('varVistos'), concat('|', item()?['MedEquipo'], '~', item()?['MedTipo'], '|')))
 ```
 
-Es decir: pasa solo lo que **todavía no fue notificado en el hito que le
-corresponde hoy**.
+Como las filas llegan ordenadas del más nuevo al más viejo, la **primera vez** que
+aparece un par Equipo+Tipo es su documento más reciente. Las apariciones
+siguientes son documentos reemplazados y no hacen nada.
 
-Los hitos:
+En la rama *sí*: `Registrar_visto` (Anexar a variable de cadena, `varVistos`, con
+esa misma clave `concat('|', …, '|')`) y después `Evaluar_alerta`.
+
+### 5·2 · `Evaluar_alerta` — Condición
+
+```
+@and(
+  if(empty(item()?['MedFechaVencimiento']), false,
+     lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 30)))),
+  not(equals(coalesce(item()?['MedAlertaEnviada'], ''), <HITO>))
+)
+```
+
+Es decir: vence en 30 días o menos (o ya venció) **y** todavía no fue notificado en
+el hito que le corresponde hoy. `<HITO>` es la misma expresión de `Calcular_hito`.
+
+Usá `coalesce(item()?['MedAlertaEnviada'], '')`, no la propiedad pelada: SharePoint
+devuelve cadena vacía en las columnas de texto sin cargar.
+
+### 5a · `Calcular_hito` — Operaciones de datos · «Redactar»
+
+```
+if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())),
+   concat('vencido-',
+          formatDateTime(convertTimeZone(utcNow(),'UTC','Argentina Standard Time'), 'yyyy'), '-',
+          string(div(sub(dayOfYear(convertTimeZone(utcNow(),'UTC','Argentina Standard Time')), 1), 7))),
+   if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 7))),  'd7',
+   if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 15))), 'd15',
+                                                                                        'd30')))
+```
 
 | Situación | Etiqueta |
 |---|---|
 | Vence en 16 a 30 días | `d30` |
 | Vence en 8 a 15 días | `d15` |
 | Vence en 0 a 7 días | `d7` |
-| Ya venció | `vencido-2026-38` (año y número de semana) |
+| Ya venció | `vencido-2026-37` (año y número de semana) |
 
-La etiqueta de los vencidos incluye la semana, así que al cambiar de semana deja
-de coincidir con lo ya notificado y vuelve a avisar. Un documento vencido y sin
-renovar genera un correo por semana, no uno por día.
+La etiqueta de los vencidos incluye la semana, así que al cambiar de semana deja de
+coincidir con lo ya notificado y vuelve a avisar: un correo por semana, no uno por
+día.
 
-> Usá `coalesce(item()?['MedAlertaEnviada'], '')`, no la propiedad pelada:
-> SharePoint devuelve cadena vacía en las columnas de texto sin cargar, y los
-> documentos recién subidos la tienen vacía.
-
----
-
-## 5 · `Recorrer_documentos` — «Aplicar a cada uno»
-
-- Seleccionar una salida (`fx`): `body('Filtrar_a_notificar')`
-- **Configuración ⚙️ → Control de simultaneidad: Activado, Grado de paralelismo `1`**
-
-> El paralelismo en 1 no es por conflicto de escritura — cada iteración toca un
-> archivo distinto —, es para que los correos lleguen en orden y no se dispare
-> una ráfaga contra el límite del conector de Outlook.
-
-> ⚠️ Fijate que **la entrada sea la matriz**, `body('Filtrar_a_notificar')`, y no
-> el cuerpo completo del paso anterior. Si dejás el chip que el diseñador engancha
-> solo, el bucle itera sobre las claves de nivel superior en vez de sobre las
-> filas, y cada iteración falla porque `item()?['FileLeafRef']` no existe.
-
-### 5a · `Calcular_hito` — Operaciones de datos · «Redactar»
-
-Entradas (`fx`) — misma expresión que usa el filtro, para que la etiqueta que se
-guarda sea exactamente la que se evaluó:
-
-```
-if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())),
-   concat('vencido-', formatDateTime(convertTimeZone(utcNow(),'UTC','Argentina Standard Time'), 'yyyy-ww')),
-   if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 7))),  'd7',
-   if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 15))), 'd15',
-                                                                                        'd30')))
-```
+> **No usar `formatDateTime(…, 'yyyy-ww')`.** `ww` no existe en Power Automate: se
+> escribe literal y la etiqueta queda fija en `vencido-2026-ww`, de modo que el
+> recordatorio semanal saldría **una sola vez por año**. La semana se calcula a
+> mano: `div(sub(dayOfYear(hoy), 1), 7)`.
 
 ### 5b · `Enviar_correo` — Outlook · «Enviar un correo electrónico (V2)»
 
@@ -188,84 +211,38 @@ if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())),
 |---|---|
 | Para | `<DESTINATARIO>` |
 | Asunto (`fx`) | ver abajo |
-| Cuerpo | ver abajo (modo HTML) |
+| Cuerpo | HTML de `$mailBody` en `Deploy-Flows.ps1` (modo código `</>`) |
 
 **Asunto:**
 
 ```
 concat(
-  if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())), '🔴 VENCIDA — ', '🟠 Por vencer — '),
-  'Medición ',
-  if(startsWith(string(item()?['MedTipo']), '{'), json(string(item()?['MedTipo']))?['Value'], string(coalesce(item()?['MedTipo'], 's/d'))),
-  ' · ',
-  if(startsWith(string(item()?['MedEquipo']), '{'), json(string(item()?['MedEquipo']))?['Value'], string(coalesce(item()?['MedEquipo'], 's/d'))),
-  ' · vence ',
+  if(<VENCIDA>, 'Medición VENCIDA', 'Medición por vencer'), ' · ',
+  item()?['MedTipo'], ' · ', item()?['MedEquipo'],
+  if(<VENCIDA>, ' · venció el ', ' · vence el '),
   formatDateTime(item()?['MedFechaVencimiento'], 'dd/MM/yyyy')
 )
 ```
 
-**Cuerpo** — poné el editor en modo código HTML (`</>`) y pegá:
+con `<VENCIDA>` = `less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow()))`. Ejemplo:
+`Medición VENCIDA · Ruido · Mase 03 · venció el 31/01/2026`.
 
-```html
-<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#14202b;max-width:640px">
+**Cuerpo.** Tabla de 640 px con estilos en línea (compatible con Outlook), de arriba
+a abajo:
 
-  @{if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())),
-    concat('<div style="background:#fdecea;border-left:6px solid #b91c1c;padding:14px 16px;border-radius:6px;margin-bottom:18px">',
-           '<div style="font-weight:700;color:#b91c1c;font-size:15px">🔴 MEDICIÓN VENCIDA</div>',
-           '<div style="color:#b91c1c;margin-top:4px">Venció el ',
-           formatDateTime(item()?['MedFechaVencimiento'], 'dd/MM/yyyy'),
-           ' — hace ', string(div(sub(ticks(utcNow()), ticks(item()?['MedFechaVencimiento'])), 864000000000)),
-           ' días. Hay que renovarla.</div></div>'),
-    concat('<div style="background:#fef3c7;border-left:6px solid #d97706;padding:14px 16px;border-radius:6px;margin-bottom:18px">',
-           '<div style="font-weight:700;color:#b45309;font-size:15px">🟠 PRÓXIMA A VENCER</div>',
-           '<div style="color:#b45309;margin-top:4px">Vence el ',
-           formatDateTime(item()?['MedFechaVencimiento'], 'dd/MM/yyyy'),
-           ' — en ', string(div(sub(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())), 864000000000)),
-           ' días.</div></div>')
-  )}
-
-  <table cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%">
-    <tr>
-      <td style="background:#e8f1f9;font-weight:600;width:170px;border:1px solid #d3dce4">Equipo</td>
-      <td style="border:1px solid #d3dce4">@{if(startsWith(string(item()?['MedEquipo']), '{'), json(string(item()?['MedEquipo']))?['Value'], string(coalesce(item()?['MedEquipo'], 's/d')))}</td>
-    </tr>
-    <tr>
-      <td style="background:#e8f1f9;font-weight:600;border:1px solid #d3dce4">Tipo de medición</td>
-      <td style="border:1px solid #d3dce4">@{if(startsWith(string(item()?['MedTipo']), '{'), json(string(item()?['MedTipo']))?['Value'], string(coalesce(item()?['MedTipo'], 's/d')))}</td>
-    </tr>
-    <tr>
-      <td style="background:#e8f1f9;font-weight:600;border:1px solid #d3dce4">Cliente</td>
-      <td style="border:1px solid #d3dce4">@{string(coalesce(item()?['MedCliente'], 's/d'))}</td>
-    </tr>
-    <tr>
-      <td style="background:#e8f1f9;font-weight:600;border:1px solid #d3dce4">Fecha de medición</td>
-      <td style="border:1px solid #d3dce4">@{if(empty(coalesce(item()?['MedFechaMedicion'], '')), 's/d', formatDateTime(item()?['MedFechaMedicion'], 'dd/MM/yyyy'))}</td>
-    </tr>
-    <tr>
-      <td style="background:#e8f1f9;font-weight:600;border:1px solid #d3dce4">Fecha de vencimiento</td>
-      <td style="border:1px solid #d3dce4;font-weight:700">@{formatDateTime(item()?['MedFechaVencimiento'], 'dd/MM/yyyy')}</td>
-    </tr>
-    <tr>
-      <td style="background:#e8f1f9;font-weight:600;border:1px solid #d3dce4">Archivo</td>
-      <td style="border:1px solid #d3dce4">@{item()?['FileLeafRef']}</td>
-    </tr>
-  </table>
-
-  <p style="margin-top:20px">
-    <a href="@{concat('https://tackersrl505.sharepoint.com', item()?['FileRef'])}"
-       style="background:#0b3d6b;color:#fff;padding:11px 20px;border-radius:7px;
-              text-decoration:none;font-weight:600;display:inline-block">
-      Abrir el documento
-    </a>
-  </p>
-
-  <p style="color:#5b6b7a;font-size:12px;margin-top:24px;border-top:1px solid #d3dce4;padding-top:12px">
-    Aviso automático del control de mediciones higiénicas.
-    Este correo se manda una vez por hito (30, 15 y 7 días antes del
-    vencimiento), y una vez por semana mientras la medición siga vencida.
-  </p>
-</div>
-```
+1. **Encabezado** azul con «Aviso de vencimiento de medición».
+2. **Banner de estado**: rojo «MEDICIÓN VENCIDA — Venció el dd/MM/aaaa (hace N
+   días)» o ámbar «PRÓXIMA A VENCER — Vence el dd/MM/aaaa (en N días)».
+3. Una línea de contexto: es la medición más reciente de ese equipo y tipo, y hay
+   que hacer una nueva.
+4. **Tabla de datos**: Equipo, Tipo de medición, Cliente / Operadora, Fecha de
+   medición, Fecha de vencimiento, Vigencia aplicada y Archivo. Lo que no esté
+   cargado se muestra como `s/d`.
+5. Botón **Abrir documento en SharePoint**.
+6. Recuadro **Qué hacer**: programar la nueva medición y cargar el PDF en la
+   aplicación; al cargarlo el aviso deja de enviarse.
+7. **Pie** con el motivo del envío: «una vez por semana mientras siga vencida», o
+   «recordatorios a 30, 15 y 7 días» si todavía no venció.
 
 > `div(…, 864000000000)` convierte una diferencia en *ticks* a días: un tick es
 > 100 nanosegundos, así que un día son 864.000.000.000 de ellos.
@@ -297,33 +274,37 @@ recibido nada — y nadie se enteraría hasta la auditoría.
 
 - [ ] Zona horaria del disparador en Buenos Aires (si queda en UTC, el aviso sale
       a las 5 de la mañana)
-- [ ] `MedFechaVencimiento` está indexada en la biblioteca
-- [ ] `Filtrar_a_notificar` está en modo **avanzado**, con la expresión completa
-- [ ] La entrada de `Recorrer_documentos` es `body('Filtrar_a_notificar')`, no el
-      cuerpo completo del paso anterior
+- [ ] La consulta usa `RenderListDataAsStream`, **no** `/items`
+- [ ] El CAML ordena por `MedFechaMedicion` **descendente** (si queda ascendente,
+      avisaría por el documento más viejo de cada grupo)
+- [ ] `Init_varVistos` está en la **raíz**, no dentro del bucle
 - [ ] Simultaneidad del bucle en `1`
+- [ ] Las fechas de `Normalizar_filas` se convierten a ISO
+- [ ] El hito de los vencidos usa `dayOfYear`, no `'yyyy-ww'`
 - [ ] `Enviar_correo` está **antes** de `Marcar_notificado`
 - [ ] `Marcar_notificado` corre solo si el correo salió bien
-- [ ] Las expresiones de `MedEquipo` y `MedTipo` usan la guarda
-      `startsWith(string(X), '{')`
-- [ ] Flow exportado como `.zip` y guardado en esta carpeta
 
 ---
 
 ## Pruebas
 
-No se puede esperar treinta días para ver si funciona. Se fuerza:
+No se puede esperar treinta días para ver si funciona. Se fuerza. El flow se
+dispara a mano con la API de administración (`POST …/flows/<id>/triggers/Periodicidad/run`),
+y el historial de cada iteración se lee en `…/runs/<corrida>/actions/<acción>/repetitions`.
 
-1. Subí un PDF de prueba con la app, con **vigencia de 1 mes**.
-2. En SharePoint, editá a mano su **Fecha de vencimiento** y ponela a cinco días
-   de hoy. Dejá **Último aviso enviado** vacío.
-3. En el flow: **Ejecutar** → tendría que llegar un correo con la franja naranja
-   y el hito `d7` escrito en la columna.
-4. **Volvé a ejecutarlo sin tocar nada.** No tiene que llegar ningún correo — así
-   se comprueba que la marca evita el envío diario.
-5. Cambiá la fecha de vencimiento a ayer y limpiá **Último aviso enviado**.
-   Ejecutá: correo con la franja roja y `vencido-<año>-<semana>` en la columna.
-6. Borrá el PDF de prueba.
+1. **Sin datos.** Con la biblioteca sin ningún vencimiento, la corrida termina
+   `Succeeded` y el bucle no entra: valida la estructura y la consulta.
+2. **Con datos.** Con los vencimientos cargados, verificá cuántas iteraciones
+   evalúan el aviso. Con 44 documentos en 20 pares Equipo+Tipo se esperan:
+   `Verificar_ultimo` 44 iteraciones, `Evaluar_alerta` **20** ejecutadas y 24
+   omitidas (los reemplazados).
+3. **Solo el último avisa.** Los correos salen únicamente para los documentos que
+   son el último de su par **y** están vencidos o por vencer.
+4. **No repite.** Volvé a ejecutarlo sin tocar nada: `Enviar_correo` tiene que
+   quedar en `Skipped` en todas las iteraciones. Así se comprueba que la marca
+   evita el envío diario.
+5. **Para volver a ver un correo**, vaciá **Último aviso enviado** de ese
+   documento y ejecutá de nuevo.
 
 > **Probalo también con la biblioteca sin ningún vencimiento próximo.** Con cero
 > filas el bucle no entra nunca, así que un error de sintaxis dentro del correo
@@ -339,6 +320,6 @@ Power Automate le manda un correo al **dueño del flow** cuando una ejecución
 falla, y después de varias fallas seguidas puede desactivarlo solo. No silencies
 esos avisos: son la única señal de que el control de vencimientos dejó de correr.
 
-Conviene mirar la pestaña **Análisis** del flow cada tanto: si la tasa de éxito
-cae, algo se rompió — casi siempre la conexión de SharePoint o de Outlook, que
-expira sola y se arregla en **Conexiones → Reparar**.
+Ojo con el caso contrario, que es el que ya pasó una vez: un flow que termina
+`Succeeded` todos los días **no prueba que esté avisando**. La única prueba es un
+documento vencido que genere un correo.

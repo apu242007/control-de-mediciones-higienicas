@@ -292,70 +292,80 @@ El conector nativo «Obtener archivos (solo propiedades)» no permite limitar la
 consulta a una subcarpeta, y la biblioteca `Documentos QHSE` tiene mucho más que
 mediciones. Con REST se filtra por ruta en una sola llamada.
 
+> ### ⚠️ No usar `/items`: en esta biblioteca devuelve vacío
+>
+> El endpoint `_api/web/GetList(...)/items` responde `200` con **cero filas**, con
+> filtro o sin él, aunque la biblioteca tenga más de mil elementos (quirk de
+> SharePoint). La consecuencia es la peor: el flow termina «Succeeded», el
+> buscador dice «No hay documentos» y no hay ningún error que perseguir.
+> La consulta se hace por **`RenderListDataAsStream`** con CAML, que es lo que usa
+> la propia interfaz de SharePoint.
+
+La definición exacta la genera [`Deploy-Flows.ps1`](Deploy-Flows.ps1); esa es la
+fuente de verdad. Lo que arma:
+
 | Campo | Valor |
 |---|---|
 | Dirección del sitio | `<SITIO>` |
-| Método | `GET` |
-| Uri (`fx`) | ver abajo |
+| Método | `POST` |
+| Uri | `_api/web/lists(guid'<ID_BIBLIOTECA>')/RenderListDataAsStream` |
+| Cuerpo (`fx`) | JSON con `RenderOptions: 2` y un `ViewXml` CAML, ver abajo |
 
-```
-concat(
-  '_api/web/GetList(''/sites/QHSE/Documentos QHSE'')/items',
-  '?$select=Id,FileLeafRef,FileRef,MedEquipo,MedCliente,MedTipo,MedFechaMedicion,MedFechaVencimiento,MedVigenciaMeses',
-  '&$filter=startswith(FileRef,''<RAIZ_SERVIDOR>'')',
-  if(empty(coalesce(triggerBody()?['tipoMedicion'],'')), '', concat(' and MedTipo eq ''', triggerBody()?['tipoMedicion'], '''')),
-  if(empty(coalesce(triggerBody()?['equipo'],'')),        '', concat(' and MedEquipo eq ''', triggerBody()?['equipo'], '''')),
-  if(empty(coalesce(triggerBody()?['cliente'],'')),       '', concat(' and MedCliente eq ''', triggerBody()?['cliente'], '''')),
-  if(empty(coalesce(triggerBody()?['desde'],'')),         '', concat(' and MedFechaMedicion ge datetime''', triggerBody()?['desde'], '''')),
-  if(empty(coalesce(triggerBody()?['hasta'],'')),         '', concat(' and MedFechaMedicion le datetime''', triggerBody()?['hasta'], '''')),
-  '&$top=2000'
-)
-```
+Cabeceras: `Accept` y `Content-Type`, ambos `application/json;odata=nometadata`.
 
-Cabeceras:
+El CAML es un `Scope='RecursiveAll'` con seis condiciones anidadas en `And`, en
+este orden: prefijo de ruta, `FSObjType = 0` (solo archivos, sin carpetas) y los
+cinco filtros opcionales (`MedTipo`, `MedEquipo`, `MedCliente`, `MedFechaMedicion`
+≥ desde y ≤ hasta). Un filtro que no vino se reemplaza por una condición siempre
+verdadera (`ID <> 0`), para que el árbol tenga siempre la misma forma. Los valores
+del usuario se escapan (`& < > '`) y se les quitan `"` y `\` antes de entrar al
+CAML, que viaja dentro de un JSON armado a mano. El prefijo de ruta se corta antes
+del acento (`…/16 - Mediciones Hig`) a propósito, para no depender de la
+codificación del carácter.
 
-| Clave | Valor |
-|---|---|
-| `Accept` | `application/json;odata=nometadata` |
+`ViewFields`: `ID, FileLeafRef, FileRef, MedEquipo, MedCliente, MedTipo,
+MedFechaMedicion, MedFechaVencimiento, MedVigenciaMeses`, con `RowLimit` 2000. La
+respuesta trae las filas en `Row` (no en `value`).
 
 **7f · `Seleccionar_filas`** — Operaciones de datos · «Seleccionar»
 
-- Desde (`fx`): `body('Consultar_archivos')?['value']`
+- Desde (`fx`): `coalesce(body('Consultar_archivos')?['Row'], json('[]'))`
 
 Asignaciones — **cada valor va en la pestaña `fx`**:
 
 | Clave | Valor |
 |---|---|
-| `id` | `item()?['Id']` |
+| `id` | `int(item()?['ID'])` |
 | `nombre` | `item()?['FileLeafRef']` |
 | `rutaRelativa` | `item()?['FileRef']` |
-| `equipo` | `if(startsWith(string(item()?['MedEquipo']), '{'), json(string(item()?['MedEquipo']))?['Value'], string(coalesce(item()?['MedEquipo'], '')))` |
+| `equipo` | `string(coalesce(item()?['MedEquipo'], ''))` |
 | `cliente` | `string(coalesce(item()?['MedCliente'], ''))` |
-| `tipoMedicion` | `if(startsWith(string(item()?['MedTipo']), '{'), json(string(item()?['MedTipo']))?['Value'], string(coalesce(item()?['MedTipo'], '')))` |
-| `fechaMedicion` | `string(coalesce(item()?['MedFechaMedicion'], ''))` |
-| `fechaVencimiento` | `string(coalesce(item()?['MedFechaVencimiento'], ''))` |
+| `tipoMedicion` | `string(coalesce(item()?['MedTipo'], ''))` |
+| `fechaMedicion` | fecha a ISO, ver abajo |
+| `fechaVencimiento` | fecha a ISO, ver abajo |
 | `urlSharePoint` | `concat('https://tackersrl505.sharepoint.com', item()?['FileRef'])` |
 
-> **La guarda de tipo de `MedEquipo` y `MedTipo` no es opcional.** SharePoint
-> devuelve una columna Elección como objeto (`{"Value":"Ruido"}`) **o como
-> cadena pelada**, según cómo se haya escrito la fila — los documentos que
-> alguien etiquetó a mano suelen venir como cadena. Si escribís
-> `item()?['MedTipo']?['Value']` directo, una sola fila con cadena tumba el
-> `Seleccionar` completo:
->
-> ```
-> Property selection is not supported on values of type 'String'.
-> ```
->
-> Y eso hace que el flow termine sin llegar a ninguna `Respuesta`, así que el
-> navegador ve **502 NoResponse**. Lo peor es cómo engaña: **funciona con cero
-> resultados y falla en cuanto aparece uno.** Probá siempre con datos.
->
-> `startsWith(string(X), '{')` es la única señal confiable, porque `string()`
-> serializa el objeto a JSON y deja la llave inicial a la vista.
->
-> Tampoco uses `coalesce` para los valores por defecto: solo salta `null`, y
-> SharePoint devuelve cadena vacía en las columnas sin cargar.
+**Fechas.** `RenderListDataAsStream` devuelve las fechas ya formateadas para la
+configuración regional del sitio (`13/06/2026`), no en ISO, y el cliente ordena y
+clasifica por cadena ISO. Se convierten a `2026-06-13T12:00:00Z`, el mismo formato
+que devolvía `/items`:
+
+```
+if(equals(length(string(coalesce(item()?['MedFechaMedicion'], ''))), 10),
+   concat(substring(<s>, 6, 4), '-', substring(<s>, 3, 2), '-', substring(<s>, 0, 2), 'T12:00:00Z'),
+   '')
+```
+
+donde `<s>` es `string(coalesce(item()?['MedFechaMedicion'], ''))`. Si alguien
+cambia el formato de fecha regional del sitio, la conversión devuelve vacío y el
+buscador muestra todo «sin fecha»: es el primer lugar donde mirar.
+
+> Con `RenderListDataAsStream` las columnas Elección llegan como **texto plano**,
+> así que ya no hace falta la guarda `startsWith(string(X), '{')` que exigía la
+> consulta anterior. Sigue valiendo la regla general: nunca `item()?['X']?['Value']`
+> sobre algo que puede ser una cadena, porque una sola fila tumba el `Seleccionar`
+> completo y el navegador ve **502 NoResponse**, que además **anda con cero
+> resultados y falla en cuanto aparece uno**. Probá siempre con datos.
 
 **7g · `Respuesta_listar`** → `200`
 
@@ -365,7 +375,7 @@ Cabecera: `Content-Type: application/json`
 {
   "ok": true,
   "items": @{body('Seleccionar_filas')},
-  "truncado": @{greaterOrEquals(length(body('Consultar_archivos')?['value']), 2000)}
+  "truncado": @{greaterOrEquals(length(body('Seleccionar_filas')), 2000)}
 }
 ```
 
@@ -426,8 +436,9 @@ Cabecera: `Content-Type: application/json`
       `)`, sin objeto envolvente y sin espacios ni `\r\n` detrás
 - [ ] `Crear_archivo` corre también si `Crear_carpeta` falla (carpeta ya existente)
 - [ ] `Actualizar_propiedades` manda `Vigencia (meses)` con la guarda de `null`
-- [ ] `Seleccionar_filas` usa la guarda `startsWith(string(X), '{')` en
-      `MedEquipo` y `MedTipo`
+- [ ] `Consultar_archivos` usa `RenderListDataAsStream` (**no** `/items`) y
+      `Seleccionar_filas` lee `Row`
+- [ ] `fechaMedicion` y `fechaVencimiento` se convierten a ISO
 - [ ] Ningún nombre de acción repetido **en todo el flow** (no alcanza que sean
       únicos dentro de su rama: `body('X')` resolvería a cualquiera de las dos)
 - [ ] URL del disparador copiada al secret `URL_FLOW` de GitHub

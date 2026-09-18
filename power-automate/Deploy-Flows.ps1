@@ -82,6 +82,24 @@ function New-TerminateAction {
     }
 }
 
+function ConvertTo-ExprLiteral {
+    param([string] $Text)
+    return "'" + $Text.Replace("'", "''") + "'"
+}
+
+# Valor de usuario -> seguro para incrustar en CAML dentro de un JSON armado a mano.
+function Get-CamlSafe {
+    param([string] $Expr)
+    return "replace(replace(replace(replace(replace(replace($Expr, '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '''', '&apos;'), '""', ''), '\', '')"
+}
+
+# RenderListDataAsStream devuelve las fechas en formato local (dd/MM/yyyy); el cliente espera ISO.
+function Get-FechaIsoExpr {
+    param([string] $Campo)
+    $s = "string(coalesce(item()?['$Campo'], ''))"
+    return "if(equals(length($s), 10), concat(substring($s, 6, 4), '-', substring($s, 3, 2), '-', substring($s, 0, 2), 'T12:00:00Z'), '')"
+}
+
 function New-Definition {
     param($Triggers, $Actions)
     return [ordered]@{
@@ -267,26 +285,55 @@ $subir.Respuesta_subir = New-ResponseAction 200 ([ordered]@{
     urlSharePoint = "@outputs('Crear_archivo')?['body/{Link}']"
 }) @{ Actualizar_propiedades = @("Succeeded") }
 
+# El endpoint /items devuelve vacío en esta biblioteca (quirk de SharePoint, con filtro o sin él),
+# así que se consulta con CAML por RenderListDataAsStream. Prefijo ASCII a propósito: evita el acento de "Higiénicas".
+$camlRaiz = "<BeginsWith><FieldRef Name='FileRef'/><Value Type='Text'>/sites/QHSE/Documentos QHSE/16 - Mediciones Hig</Value></BeginsWith>"
+$camlSiempreVerdadero = "<Neq><FieldRef Name='ID'/><Value Type='Counter'>0</Value></Neq>"
+
+function Get-CamlCondicion {
+    param([string] $Clave, [string] $Campo, [string] $TipoValor, [string] $Operador, [switch] $SoloFecha)
+    $valor = "coalesce(triggerBody()?['$Clave'], '')"
+    $atributoFecha = ""
+    if ($SoloFecha) {
+        $valor = "substring(concat($valor, '0000000000'), 0, 10)"
+        $atributoFecha = " IncludeTimeValue=''FALSE''"
+    }
+    $real = "concat('<$Operador><FieldRef Name=''$Campo''/><Value Type=''$TipoValor''$atributoFecha>', $(Get-CamlSafe $valor), '</Value></$Operador>')"
+    return "if(empty(coalesce(triggerBody()?['$Clave'], '')), $(ConvertTo-ExprLiteral $camlSiempreVerdadero), $real)"
+}
+
+$camlCampos = "<FieldRef Name='ID'/><FieldRef Name='FileLeafRef'/><FieldRef Name='FileRef'/><FieldRef Name='MedEquipo'/><FieldRef Name='MedCliente'/><FieldRef Name='MedTipo'/><FieldRef Name='MedFechaMedicion'/><FieldRef Name='MedFechaVencimiento'/><FieldRef Name='MedVigenciaMeses'/>"
+$listarPartes = @(
+    (ConvertTo-ExprLiteral ('{"parameters":{"RenderOptions":2,"ViewXml":"<View Scope=''RecursiveAll''><Query><Where><And><And><And><And><And><And>' + $camlRaiz + "<Eq><FieldRef Name='FSObjType'/><Value Type='Integer'>0</Value></Eq></And>")),
+    (Get-CamlCondicion "tipoMedicion" "MedTipo" "Text" "Eq"), (ConvertTo-ExprLiteral "</And>"),
+    (Get-CamlCondicion "equipo" "MedEquipo" "Text" "Eq"), (ConvertTo-ExprLiteral "</And>"),
+    (Get-CamlCondicion "cliente" "MedCliente" "Text" "Eq"), (ConvertTo-ExprLiteral "</And>"),
+    (Get-CamlCondicion "desde" "MedFechaMedicion" "DateTime" "Geq" -SoloFecha), (ConvertTo-ExprLiteral "</And>"),
+    (Get-CamlCondicion "hasta" "MedFechaMedicion" "DateTime" "Leq" -SoloFecha), (ConvertTo-ExprLiteral "</And>"),
+    (ConvertTo-ExprLiteral ("</Where></Query><ViewFields>$camlCampos</ViewFields><RowLimit>2000</RowLimit></View>" + '"}}'))
+)
+
 $listar = [ordered]@{}
 $listar.Consultar_archivos = New-ConnectorAction "shared_sharepointonline" "shared_sharepointonline" "HttpRequest" ([ordered]@{
     dataset = $SiteUrl
-    'parameters/method' = "GET"
-    'parameters/uri' = "@concat('_api/web/GetList(''/sites/QHSE/Documentos QHSE'')/items', '?`$select=Id,FileLeafRef,FileRef,MedEquipo,MedCliente,MedTipo,MedFechaMedicion,MedFechaVencimiento,MedVigenciaMeses', '&`$filter=startswith(FileRef,''/sites/QHSE/Documentos QHSE/16 - Mediciones Higiénicas LUZ y RUIDO'')', if(empty(coalesce(triggerBody()?['tipoMedicion'],'')), '', concat(' and MedTipo eq ''', triggerBody()?['tipoMedicion'], '''')), if(empty(coalesce(triggerBody()?['equipo'],'')), '', concat(' and MedEquipo eq ''', triggerBody()?['equipo'], '''')), if(empty(coalesce(triggerBody()?['cliente'],'')), '', concat(' and MedCliente eq ''', triggerBody()?['cliente'], '''')), if(empty(coalesce(triggerBody()?['desde'],'')), '', concat(' and MedFechaMedicion ge datetime''', triggerBody()?['desde'], '''')), if(empty(coalesce(triggerBody()?['hasta'],'')), '', concat(' and MedFechaMedicion le datetime''', triggerBody()?['hasta'], '''')), '&`$top=2000')"
-    'parameters/headers' = @{ Accept = "application/json;odata=nometadata" }
+    'parameters/method' = "POST"
+    'parameters/uri' = "_api/web/lists(guid'$LibraryId')/RenderListDataAsStream"
+    'parameters/headers' = @{ Accept = "application/json;odata=nometadata"; "Content-Type" = "application/json;odata=nometadata" }
+    'parameters/body' = "@concat($($listarPartes -join ', '))"
 })
 $listar.Seleccionar_filas = [ordered]@{
     type = "Select"
     inputs = [ordered]@{
-        from = "@body('Consultar_archivos')?['value']"
+        from = "@coalesce(body('Consultar_archivos')?['Row'], json('[]'))"
         select = [ordered]@{
-            id = "@item()?['Id']"
+            id = "@int(item()?['ID'])"
             nombre = "@item()?['FileLeafRef']"
             rutaRelativa = "@item()?['FileRef']"
-            equipo = "@if(startsWith(string(item()?['MedEquipo']), '{'), json(string(item()?['MedEquipo']))?['Value'], string(coalesce(item()?['MedEquipo'], '')))"
+            equipo = "@string(coalesce(item()?['MedEquipo'], ''))"
             cliente = "@string(coalesce(item()?['MedCliente'], ''))"
-            tipoMedicion = "@if(startsWith(string(item()?['MedTipo']), '{'), json(string(item()?['MedTipo']))?['Value'], string(coalesce(item()?['MedTipo'], '')))"
-            fechaMedicion = "@string(coalesce(item()?['MedFechaMedicion'], ''))"
-            fechaVencimiento = "@string(coalesce(item()?['MedFechaVencimiento'], ''))"
+            tipoMedicion = "@string(coalesce(item()?['MedTipo'], ''))"
+            fechaMedicion = "@$(Get-FechaIsoExpr 'MedFechaMedicion')"
+            fechaVencimiento = "@$(Get-FechaIsoExpr 'MedFechaVencimiento')"
             urlSharePoint = "@concat('https://tackersrl505.sharepoint.com', item()?['FileRef'])"
         }
     }
@@ -295,7 +342,7 @@ $listar.Seleccionar_filas = [ordered]@{
 $listar.Respuesta_listar = New-ResponseAction 200 ([ordered]@{
     ok = $true
     items = "@body('Seleccionar_filas')"
-    truncado = "@greaterOrEquals(length(body('Consultar_archivos')?['value']), 2000)"
+    truncado = "@greaterOrEquals(length(body('Seleccionar_filas')), 2000)"
 }) @{ Seleccionar_filas = @("Succeeded") }
 
 $descargar = [ordered]@{}
@@ -343,33 +390,90 @@ $alertActions.Init_varHoy = [ordered]@{
     inputs = @{ variables = @(@{ name = "varHoy"; type = "String"; value = "@formatDateTime(convertTimeZone(utcNow(), 'UTC', 'Argentina Standard Time'), 'yyyy-MM-dd')" }) }
     runAfter = @{}
 }
+$alertActions.Init_varVistos = [ordered]@{
+    type = "InitializeVariable"
+    inputs = @{ variables = @(@{ name = "varVistos"; type = "String"; value = "" }) }
+    runAfter = @{ Init_varHoy = @("Succeeded") }
+}
+# Se traen TODOS los documentos con vencimiento, del más nuevo al más viejo: solo avisa el último de cada Equipo+Tipo.
+$alertaCaml = '{"parameters":{"RenderOptions":2,"ViewXml":"<View Scope=''RecursiveAll''><Query><Where><And>' + $camlRaiz + "<IsNotNull><FieldRef Name='MedFechaVencimiento'/></IsNotNull></And></Where><OrderBy><FieldRef Name='MedFechaMedicion' Ascending='FALSE'/><FieldRef Name='ID' Ascending='FALSE'/></OrderBy></Query><ViewFields><FieldRef Name='ID'/><FieldRef Name='FileLeafRef'/><FieldRef Name='FileRef'/><FieldRef Name='MedEquipo'/><FieldRef Name='MedCliente'/><FieldRef Name='MedTipo'/><FieldRef Name='MedFechaMedicion'/><FieldRef Name='MedFechaVencimiento'/><FieldRef Name='MedVigenciaMeses'/><FieldRef Name='MedAlertaEnviada'/></ViewFields><RowLimit>2000</RowLimit></View>" + '"}}'
 $alertActions.Consultar_vencimientos = New-ConnectorAction "shared_sharepointonline" "shared_sharepointonline" "HttpRequest" ([ordered]@{
     dataset = $SiteUrl
-    'parameters/method' = "GET"
-    'parameters/uri' = "@concat('_api/web/GetList(''/sites/QHSE/Documentos QHSE'')/items', '?`$select=Id,FileLeafRef,FileRef,MedEquipo,MedCliente,MedTipo,MedFechaMedicion,MedFechaVencimiento,MedAlertaEnviada', '&`$filter=startswith(FileRef,''/sites/QHSE/Documentos QHSE/16 - Mediciones Higiénicas LUZ y RUIDO'') and MedFechaVencimiento ne null and MedFechaVencimiento le datetime''', formatDateTime(addDays(utcNow(), 30), 'yyyy-MM-dd'), 'T23:59:59Z''', '&`$top=2000')"
-    'parameters/headers' = @{ Accept = "application/json;odata=nometadata" }
-}) @{ Init_varHoy = @("Succeeded") }
-$hito = "if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())), concat('vencido-', formatDateTime(convertTimeZone(utcNow(),'UTC','Argentina Standard Time'), 'yyyy-ww')), if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 7))), 'd7', if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 15))), 'd15', 'd30')))"
-$alertActions.Filtrar_a_notificar = [ordered]@{
-    type = "Query"
+    'parameters/method' = "POST"
+    'parameters/uri' = "_api/web/lists(guid'$LibraryId')/RenderListDataAsStream"
+    'parameters/headers' = @{ Accept = "application/json;odata=nometadata"; "Content-Type" = "application/json;odata=nometadata" }
+    'parameters/body' = "@$(ConvertTo-ExprLiteral $alertaCaml)"
+}) @{ Init_varVistos = @("Succeeded") }
+$alertActions.Normalizar_filas = [ordered]@{
+    type = "Select"
     inputs = [ordered]@{
-        from = "@body('Consultar_vencimientos')?['value']"
-        where = "@not(equals(coalesce(item()?['MedAlertaEnviada'], ''), $hito))"
+        from = "@coalesce(body('Consultar_vencimientos')?['Row'], json('[]'))"
+        select = [ordered]@{
+            Id = "@int(item()?['ID'])"
+            FileLeafRef = "@item()?['FileLeafRef']"
+            FileRef = "@item()?['FileRef']"
+            MedEquipo = "@string(coalesce(item()?['MedEquipo'], ''))"
+            MedCliente = "@string(coalesce(item()?['MedCliente'], ''))"
+            MedTipo = "@string(coalesce(item()?['MedTipo'], ''))"
+            MedFechaMedicion = "@$(Get-FechaIsoExpr 'MedFechaMedicion')"
+            MedFechaVencimiento = "@$(Get-FechaIsoExpr 'MedFechaVencimiento')"
+            MedVigenciaMeses = "@string(coalesce(item()?['MedVigenciaMeses'], ''))"
+            MedAlertaEnviada = "@string(coalesce(item()?['MedAlertaEnviada'], ''))"
+        }
     }
     runAfter = @{ Consultar_vencimientos = @("Succeeded") }
 }
-$mailBody = @'
-<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#14202b;max-width:640px">
-@{if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())), concat('<div style="background:#fdecea;border-left:6px solid #b91c1c;padding:14px 16px"><b>MEDICIÓN VENCIDA</b><br>Venció el ', formatDateTime(item()?['MedFechaVencimiento'], 'dd/MM/yyyy'), '.</div>'), concat('<div style="background:#fef3c7;border-left:6px solid #d97706;padding:14px 16px"><b>PRÓXIMA A VENCER</b><br>Vence el ', formatDateTime(item()?['MedFechaVencimiento'], 'dd/MM/yyyy'), '.</div>'))}
-<table cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;margin-top:18px">
-<tr><td><b>Equipo</b></td><td>@{if(startsWith(string(item()?['MedEquipo']), '{'), json(string(item()?['MedEquipo']))?['Value'], string(coalesce(item()?['MedEquipo'], 's/d')))}</td></tr>
-<tr><td><b>Tipo</b></td><td>@{if(startsWith(string(item()?['MedTipo']), '{'), json(string(item()?['MedTipo']))?['Value'], string(coalesce(item()?['MedTipo'], 's/d')))}</td></tr>
-<tr><td><b>Cliente</b></td><td>@{string(coalesce(item()?['MedCliente'], 's/d'))}</td></tr>
-<tr><td><b>Archivo</b></td><td>@{item()?['FileLeafRef']}</td></tr>
+$hito = "if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())), concat('vencido-', formatDateTime(convertTimeZone(utcNow(),'UTC','Argentina Standard Time'), 'yyyy'), '-', string(div(sub(dayOfYear(convertTimeZone(utcNow(),'UTC','Argentina Standard Time')), 1), 7))),if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 7))), 'd7', if(lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 15))), 'd15', 'd30')))"
+$venc = "item()?['MedFechaVencimiento']"
+$estaVencida = "less(ticks($venc), ticks(utcNow()))"
+$diasAbs = "div(if($estaVencida, sub(ticks(utcNow()), ticks($venc)), sub(ticks($venc), ticks(utcNow()))), 864000000000)"
+$fechaVenc = "formatDateTime($venc, 'dd/MM/yyyy')"
+$fechaMed = "if(empty(item()?['MedFechaMedicion']), 's/d', formatDateTime(item()?['MedFechaMedicion'], 'dd/MM/yyyy'))"
+$clienteTxt = "if(empty(item()?['MedCliente']), 's/d', item()?['MedCliente'])"
+$vigenciaTxt = "if(empty(item()?['MedVigenciaMeses']), 's/d', concat(item()?['MedVigenciaMeses'], ' meses'))"
+$urlDoc = "concat('https://tackersrl505.sharepoint.com', item()?['FileRef'])"
+$urlApp = "https://apu242007.github.io/control-de-mediciones-higienicas/"
+$fila = { param($etiqueta, $expr, $fondo) "<tr><td style=""padding:11px 16px;background:$fondo;border-bottom:1px solid #e4e7ec;width:38%;color:#667085;font-size:13px"">$etiqueta</td><td style=""padding:11px 16px;background:$fondo;border-bottom:1px solid #e4e7ec;color:#101828;font-size:14px;font-weight:600"">@{$expr}</td></tr>" }
+$mailBody = @"
+<div style="background:#f2f4f7;padding:24px 12px;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#101828">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #dfe3e8;border-collapse:separate">
+<tr><td style="background:#0b3d6b;padding:22px 28px">
+<div style="color:#a9c3dd;font-size:12px;letter-spacing:1px;text-transform:uppercase">Tacker &middot; Control de Mediciones Higiénicas</div>
+<div style="color:#ffffff;font-size:21px;font-weight:600;margin-top:6px">Aviso de vencimiento de medición</div>
+</td></tr>
+<tr><td style="padding:24px 28px 8px 28px">
+@{if($estaVencida, concat('<div style="background:#fef3f2;border:1px solid #fda29b;border-left:6px solid #b42318;padding:14px 18px"><div style="color:#b42318;font-size:12px;font-weight:700;letter-spacing:1px">MEDICIÓN VENCIDA</div><div style="color:#101828;font-size:17px;font-weight:600;margin-top:4px">Venció el ', $fechaVenc, ' (hace ', string($diasAbs), ' días)</div></div>'), concat('<div style="background:#fffaeb;border:1px solid #fedf89;border-left:6px solid #b54708;padding:14px 18px"><div style="color:#b54708;font-size:12px;font-weight:700;letter-spacing:1px">PRÓXIMA A VENCER</div><div style="color:#101828;font-size:17px;font-weight:600;margin-top:4px">Vence el ', $fechaVenc, ' (en ', string($diasAbs), ' días)</div></div>'))}
+</td></tr>
+<tr><td style="padding:16px 28px 4px 28px;font-size:14px;line-height:21px;color:#344054">
+Esta es la medición más reciente registrada para este equipo y tipo de estudio. Para mantener el cumplimiento, hay que realizar una nueva medición.
+</td></tr>
+<tr><td style="padding:12px 28px 8px 28px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4e7ec;border-collapse:collapse">
+$(& $fila 'Equipo' "string(coalesce(item()?['MedEquipo'], 's/d'))" '#ffffff')
+$(& $fila 'Tipo de medición' "string(coalesce(item()?['MedTipo'], 's/d'))" '#f9fafb')
+$(& $fila 'Cliente / Operadora' $clienteTxt '#ffffff')
+$(& $fila 'Fecha de medición' $fechaMed '#f9fafb')
+$(& $fila 'Fecha de vencimiento' $fechaVenc '#ffffff')
+$(& $fila 'Vigencia aplicada' $vigenciaTxt '#f9fafb')
+$(& $fila 'Archivo' "item()?['FileLeafRef']" '#ffffff')
 </table>
-<p><a href="@{concat('https://tackersrl505.sharepoint.com', item()?['FileRef'])}">Abrir el documento</a></p>
+</td></tr>
+<tr><td align="center" style="padding:20px 28px 8px 28px">
+<a href="@{$urlDoc}" style="display:inline-block;background:#0b3d6b;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:13px 28px;border-radius:6px">Abrir documento en SharePoint</a>
+</td></tr>
+<tr><td style="padding:20px 28px 8px 28px">
+<div style="background:#f9fafb;border:1px solid #e4e7ec;padding:14px 18px;font-size:13px;line-height:20px;color:#344054">
+<b style="color:#101828">Qué hacer</b><br>
+1. Programar la nueva medición del equipo.<br>
+2. Cargar el PDF en la <a href="$urlApp" style="color:#0b3d6b">aplicación de mediciones</a>. Al cargarlo, este aviso deja de enviarse.
 </div>
-'@
+</td></tr>
+<tr><td style="padding:16px 28px 24px 28px;font-size:12px;line-height:18px;color:#98a2b3;border-top:1px solid #eaecf0">
+Mensaje automático de Control de Mediciones Higiénicas. @{if($estaVencida, 'Se repite una vez por semana mientras la medición siga vencida.', 'Se envían recordatorios a 30, 15 y 7 días del vencimiento.')} No responder a este correo.
+</td></tr>
+</table>
+</div>
+"@
 $loopActions = [ordered]@{}
 $loopActions.Calcular_hito = [ordered]@{
     type = "Compose"
@@ -378,7 +482,7 @@ $loopActions.Calcular_hito = [ordered]@{
 }
 $loopActions.Enviar_correo = New-ConnectorAction "shared_office365" "shared_office365" "SendEmailV2" ([ordered]@{
     'emailMessage/To' = $Recipient
-    'emailMessage/Subject' = "@concat(if(less(ticks(item()?['MedFechaVencimiento']), ticks(utcNow())), 'VENCIDA - ', 'Por vencer - '), 'Medición ', if(startsWith(string(item()?['MedTipo']), '{'), json(string(item()?['MedTipo']))?['Value'], string(coalesce(item()?['MedTipo'], 's/d'))), ' · ', if(startsWith(string(item()?['MedEquipo']), '{'), json(string(item()?['MedEquipo']))?['Value'], string(coalesce(item()?['MedEquipo'], 's/d'))), ' · vence ', formatDateTime(item()?['MedFechaVencimiento'], 'dd/MM/yyyy'))"
+    'emailMessage/Subject' = "@concat(if($estaVencida, 'Medición VENCIDA', 'Medición por vencer'), ' · ', item()?['MedTipo'], ' · ', item()?['MedEquipo'], if($estaVencida, ' · venció el ', ' · vence el '), $fechaVenc)"
     'emailMessage/Body' = $mailBody
     'emailMessage/Importance' = "Normal"
 }) @{ Calcular_hito = @("Succeeded") }
@@ -388,11 +492,34 @@ $loopActions.Marcar_notificado = New-ConnectorAction "shared_sharepointonline" "
     id = "@item()?['Id']"
     'item/MedAlertaEnviada' = "@outputs('Calcular_hito')"
 }) @{ Enviar_correo = @("Succeeded") }
+$claveGrupo = "concat('|', item()?['MedEquipo'], '~', item()?['MedTipo'], '|')"
+$vencimientoCercano = "if(empty(item()?['MedFechaVencimiento']), false, lessOrEquals(ticks(item()?['MedFechaVencimiento']), ticks(addDays(utcNow(), 30))))"
+$loopVerificar = [ordered]@{}
+$loopVerificar.Registrar_visto = [ordered]@{
+    type = "AppendToStringVariable"
+    inputs = @{ name = "varVistos"; value = "@$claveGrupo" }
+    runAfter = @{}
+}
+$loopVerificar.Evaluar_alerta = [ordered]@{
+    type = "If"
+    expression = "@and($vencimientoCercano, not(equals(coalesce(item()?['MedAlertaEnviada'], ''), $hito)))"
+    actions = $loopActions
+    else = @{ actions = @{} }
+    runAfter = @{ Registrar_visto = @("Succeeded") }
+}
 $alertActions.Recorrer_documentos = [ordered]@{
     type = "Foreach"
-    foreach = "@body('Filtrar_a_notificar')"
-    actions = $loopActions
-    runAfter = @{ Filtrar_a_notificar = @("Succeeded") }
+    foreach = "@body('Normalizar_filas')"
+    actions = [ordered]@{
+        Verificar_ultimo = [ordered]@{
+            type = "If"
+            expression = "@not(contains(variables('varVistos'), $claveGrupo))"
+            actions = $loopVerificar
+            else = @{ actions = @{} }
+            runAfter = @{}
+        }
+    }
+    runAfter = @{ Normalizar_filas = @("Succeeded") }
     runtimeConfiguration = @{ concurrency = @{ repetitions = 1 } }
 }
 if ($AlertFrequency -eq "Manual") {
