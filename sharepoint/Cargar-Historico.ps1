@@ -37,6 +37,7 @@ param(
     [string] $LibraryId = "3bcd9efb-57ca-4acf-b841-2e2557cc09d5",
     [string] $RaizRelativa = "/sites/QHSE/Documentos QHSE/16 - Mediciones Higiénicas LUZ y RUIDO",
     [switch] $SoloDiagnostico,
+    [switch] $SoloFaltantes,
     [switch] $ForzarLogin
 )
 
@@ -258,23 +259,26 @@ foreach ($m in $Mapeo) {
 function Mostrar-Diagnostico {
     Write-Host ""
     Write-Host "  Diagnostico: contenido actual de la biblioteca" -ForegroundColor White
-    $filtro = "startswith(FileRef,'$RaizRelativa')"
-    $uri = "$ApiSitio/web/lists(guid'$LibraryId')/items" +
-           "?`$select=FileLeafRef,FileRef,FSObjType,MedEquipo,MedTipo,MedFechaMedicion,MedCliente,Created" +
-           "&`$filter=$filtro&`$orderby=Created desc&`$top=2000"
+    # /items devuelve vacío en esta biblioteca (quirk de SharePoint): se consulta con CAML por RenderListDataAsStream.
+    # Prefijo cortado antes del acento de "Higiénicas" para no depender de la codificación.
+    $prefijo = $RaizRelativa.Substring(0, $RaizRelativa.IndexOf("Hig") + 3)
+    $caml = "<View Scope='RecursiveAll'><Query><Where><BeginsWith><FieldRef Name='FileRef'/><Value Type='Text'>$prefijo</Value></BeginsWith></Where></Query>" +
+            "<ViewFields><FieldRef Name='FileLeafRef'/><FieldRef Name='FileRef'/><FieldRef Name='FSObjType'/><FieldRef Name='MedEquipo'/><FieldRef Name='Created'/></ViewFields><RowLimit>2000</RowLimit></View>"
+    $cuerpo = @{ parameters = @{ RenderOptions = 2; ViewXml = $caml } } | ConvertTo-Json -Compress
+    $uri = "$ApiSitio/web/lists(guid'$LibraryId')/RenderListDataAsStream"
     try {
-        $r = Invoke-SP -Uri $uri
-        $items = @($r.value)
-        $archivos = $items | Where-Object { $_.FSObjType -eq 0 }
-        $carpetas = $items | Where-Object { $_.FSObjType -eq 1 }
+        $r = Invoke-SP -Method POST -Uri $uri -BodyBytes ([Text.Encoding]::UTF8.GetBytes($cuerpo)) `
+            -ExtraHeaders @{ "Content-Type" = "application/json;odata=nometadata;charset=utf-8" }
+        $items = @($r.Row)
+        $archivos = $items | Where-Object { $_.FSObjType -eq "0" }
+        $carpetas = $items | Where-Object { $_.FSObjType -eq "1" }
         Write-Host "  Carpetas bajo la raíz: $($carpetas.Count)" -ForegroundColor Gray
         Write-Host "  Archivos bajo la raíz: $($archivos.Count)" -ForegroundColor Gray
         if ($archivos.Count -gt 0) {
             Write-Host ""
             Write-Host "  Los 10 más recientes:" -ForegroundColor Gray
             $archivos | Select-Object -First 10 | ForEach-Object {
-                $equipo = if ($_.MedEquipo -is [string]) { $_.MedEquipo } else { $_.MedEquipo.Value }
-                "    $($_.Created)  $($_.FileLeafRef)  [equipo=$equipo]"
+                Write-Host "    $($_.Created)  $($_.FileLeafRef)  [equipo=$($_.MedEquipo)]"
             }
         } else {
             Write-Host "  No hay NINGÚN archivo bajo '$RaizRelativa' todavía." -ForegroundColor Yellow
@@ -386,8 +390,10 @@ $existentes = Mostrar-Diagnostico
 
 if ($SoloDiagnostico) { exit 0 }
 
+# Por nombre y no por ruta: la biblioteca se reorganiza a mano (carpetas por año, fechas completadas),
+# así que un archivo ya cargado puede no estar donde este script lo pondría.
 $existentesPorNombre = @{}
-foreach ($e in $existentes) { $existentesPorNombre[$e.FileLeafRef] = $true }
+foreach ($e in $existentes) { $existentesPorNombre[([string]$e.FileLeafRef).ToLowerInvariant()] = $true }
 
 Write-Host ""
 Write-Host "  Subiendo..." -ForegroundColor White
@@ -398,7 +404,12 @@ foreach ($item in $Mapeo) {
     $nombreArchivo = Split-Path $item.Local -Leaf
     Write-Host "  [$i/$($Mapeo.Count)] $nombreArchivo" -NoNewline
 
-    if ($existentesPorNombre.ContainsKey($nombreArchivo) -and -not $WhatIfPreference) {
+    $yaExiste = $existentesPorNombre.ContainsKey($nombreArchivo.ToLowerInvariant())
+    if ($yaExiste -and $SoloFaltantes) {
+        Write-Host "  = ya existe, se omite" -ForegroundColor DarkGray
+        continue
+    }
+    if ($yaExiste -and -not $WhatIfPreference) {
         Write-Host "  = ya existe, se sobrescribe con los datos actuales" -ForegroundColor DarkGray
     } else {
         Write-Host ""
